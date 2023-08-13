@@ -1,0 +1,118 @@
+<html>
+<body>
+<style>
+
+button {
+      font-size: 500%;
+}
+</style>
+<h1>
+  <button type="button" id="correct_word" onclick="playWord();">Word</button>
+</h1>
+<button type="button" id="choice_0" onclick="clickChoice(0);">Press</button>
+<button type="button" id="choice_1" onclick="clickChoice(1);">Press</button>
+<button type="button" id="choice_2" onclick="clickChoice(2);">Press</button>
+<button type="button" id="choice_3" onclick="clickChoice(3);">Press</button>
+<button type="button" id="choice_4" onclick="clickChoice(4);">Press</button>
+
+</body>
+  <script>
+    var list_words = ["apple", "ape", "army", "dumb", "fun" , "art"];
+    var correct_word = "peter";
+    var game_state = "uninit"
+    var wait_till = 30;
+    requestAnimationFrame(MainLoop);
+    function MainLoop(timestamp)
+    {
+        if(wait_till < 0)
+        {
+            console.log(game_state);
+            if(game_state=="init")
+            {
+              resetWords(); 
+              game_state = "input"
+            }
+            else if(game_state=="next")
+            {
+                resetWords();
+                game_state = "input";
+            }
+        }
+        else
+        {
+            wait_till--;
+               console.log("waiting");
+        }
+        requestAnimationFrame(MainLoop);
+    }
+    
+ 
+
+    function sayThis(msg)
+    {
+        var speech_say = new SpeechSynthesisUtterance();
+        speech_say.text = msg;
+        window.speechSynthesis.speak(speech_say);
+    }
+    
+    function playWord()
+    {
+        if(game_state == "uninit")
+        {
+            sayThis("Click the button for the word.");
+            wait_till = 5*60;
+            game_state= "init"
+        }
+        else
+        {
+            sayThis(correct_word);
+        }
+    }
+    
+    function shuffleArray(array) {
+        for (var i = array.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
+        }
+    }
+    function resetWords()
+    {
+      correct_word =  list_words[Math.floor(Math.random()*list_words.length)];
+      word_options = [correct_word];
+      rand_list = []
+      for (let possible_word of list_words) {
+        if(possible_word.charAt(0) == correct_word.charAt(0)){
+          rand_list.push(possible_word);
+        }
+      }
+      
+      for (let i = 0; i < 4; i++) {
+        word_options.push( rand_list[Math.floor(Math.random()*word_options.length)]);
+      }
+      shuffleArray(word_options);
+      for (let i = 0; i < 5; i++) {
+          document.getElementById("choice_" + i ).textContent= word_options[i];
+          document.getElementById("choice_" + i ).style.color = "black";
+      }
+      sayThis(correct_word);
+    }
+    
+    function clickChoice( index_choice) {  
+      if(document.getElementById("choice_" + index_choice ).textContent == correct_word)
+      {
+        game_state="next";
+        sayThis("Good job");
+        wait_till = 2*60;
+        document.getElementById("choice_" + index_choice ).style.color = "green";
+      }
+      else
+      {
+          sayThis("nope");
+           document.getElementById("choice_" + index_choice ).style.color = "red";
+      }
+      
+    }
+</script>
+</html>
