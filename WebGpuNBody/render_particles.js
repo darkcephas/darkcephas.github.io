@@ -59,7 +59,7 @@ function setup_render_particles(pipelineLayout) {
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
           let i = f32(input.instance);
-          let gridPos = (input.pos.xy / grid)*0.5 +  cellState[input.instance].pos;
+          let gridPos = (input.pos.xy / grid) +  cellState[input.instance].pos;
           output.pos = vec4f(gridPos, 0, 1);
           output.vert_pos = input.pos.xy; // New line!
           return output;
@@ -68,7 +68,7 @@ function setup_render_particles(pipelineLayout) {
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
             var r_res = 1.0-dot(input.vert_pos,input.vert_pos);
             r_res = max(r_res, 0.0);
-            return vec4f(r_res,r_res,r_res,1);
+            return vec4f(r_res*0.1,r_res*0.2,r_res*0.3,1);
         }
       `
     });

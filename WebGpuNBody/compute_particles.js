@@ -19,10 +19,23 @@ function setup_compute_particles(pipelineLayout) {
         @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
-        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u) {
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
           // Determine how many active neighbors this cell has.
+          var my_pos = cellStateIn[global_idx.x].pos;
+          var total_force = vec2f(0,0);
+          for(var i = 0u; i < (num_work.x * u32(${WORKGROUP_SIZE})) ; i++)
+          {
+            if(i != global_idx.x){
+              var diff_length = length(my_pos - cellStateIn[i].pos) ;
+              total_force += -(my_pos - cellStateIn[i].pos) / (diff_length*diff_length);
+            }
+          }
 
-          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + cellStateIn[global_idx.x].vel*0.01 ;
+
+          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + cellStateIn[global_idx.x].vel*0.0005 ;
+          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*0.000002 ;
         }
       `
     });  
@@ -49,8 +62,8 @@ function setup_compute_particles(pipelineLayout) {
       cellStateArray[i] =  Math.random() -0.5;
       cellStateArray[i+1] =  Math.random() -0.5;
 
-      cellStateArray[i+2] =  cellStateArray[i+1]  ;
-      cellStateArray[i+3] =- cellStateArray[i]  ;
+      cellStateArray[i+2] =  cellStateArray[i+1]*10  ;
+      cellStateArray[i+3] =- cellStateArray[i] *10 ;
     }
     device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
     device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
