@@ -6,13 +6,13 @@ var vertices;
 function setup_render_particles(pipelineLayout) {
     vertices = new Float32Array([
     //   X,    Y,
-      -0.8, -0.8, // Triangle 1 (Blue)
-       0.8, -0.8,
-       0.8,  0.8,
+      -1.0, -1.0, // Triangle 1 (Blue)
+       1.0, -1.0,
+       1.0,  1.0,
 
-      -0.8, -0.8, // Triangle 2 (Red)
-       0.8,  0.8,
-      -0.8,  0.8,
+      -1.0, -1.0, // Triangle 2 (Red)
+       1.0,  1.0,
+      -1.0,  1.0,
     ]);
     vertexBuffer = device.createBuffer({
       label: "Cell vertices",
@@ -40,30 +40,36 @@ function setup_render_particles(pipelineLayout) {
 
         struct VertexOutput {
           @builtin(position) pos: vec4f,
-          @location(0) cell: vec2f, // Not used yet
+          @location(0) vert_pos: vec2f, // Not used yet
         };
         
         struct FragInput {
-          @location(0) cell: vec2f,
+          @location(0) vert_pos: vec2f,
         };
+
+        struct Particle {
+          pos: vec2f,
+          vel: vec2f,
+       };
 
 
         @group(0) @binding(0) var<uniform> grid: vec2f;
-        @group(0) @binding(1) var<storage> cellState: array<vec2f>;
+        @group(0) @binding(1) var<storage> cellState: array<Particle>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
           let i = f32(input.instance);
-          let gridPos = (input.pos.xy / grid) +  cellState[input.instance];
+          let gridPos = (input.pos.xy / grid)*0.5 +  cellState[input.instance].pos;
           output.pos = vec4f(gridPos, 0, 1);
-          output.cell = vec2f(0,0); // New line!
+          output.vert_pos = input.pos.xy; // New line!
           return output;
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            return vec4f(1,1, 1, 1);
+            var r_res = 1.0-dot(input.vert_pos,input.vert_pos);
+            r_res = max(r_res, 0.0);
+            return vec4f(r_res,r_res,r_res,1);
         }
-
       `
     });
     
@@ -79,7 +85,19 @@ function setup_render_particles(pipelineLayout) {
         module: cellShaderModule,
         entryPoint: "fragmentMain",
         targets: [{
-          format: canvasFormat
+          format: canvasFormat,
+          blend: {
+            alpha: {
+              dstFactor: "zero",
+              srcFactor: "one",
+              operation: "add"
+            },
+            color: {
+              dstFactor: "one",
+              srcFactor: "one",
+              operation: "add"
+            },
+          },
         }]
       }
     });
@@ -100,7 +118,7 @@ function draw_particles(encoder, bindGroups, step)
       pass.setPipeline(cellPipeline);
       pass.setBindGroup(0, bindGroups[step % 2]); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
-      pass.draw(vertices.length / 2, GRID_SIZE * GRID_SIZE);
+      pass.draw(vertices.length / 2, NUM_PARTICLES_DIM * NUM_PARTICLES_DIM);
       // End the render pass and submit the command buffer
       pass.end();
 }

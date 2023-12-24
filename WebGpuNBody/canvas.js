@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const GRID_SIZE =16;
+const NUM_PARTICLES_DIM = 16;
     
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
@@ -51,8 +51,8 @@ window.onload =  async  function () {
     setup_compute_particles(pipelineLayout);
  
 
-            // Create a uniform buffer that describes the grid.
-    const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);
+    // Create a uniform buffer that describes the grid.
+    const uniformArray = new Float32Array([NUM_PARTICLES_DIM, NUM_PARTICLES_DIM]);
     const uniformBuffer = device.createBuffer({
       label: "Grid Uniforms",
       size: uniformArray.byteLength,
@@ -96,7 +96,7 @@ window.onload =  async  function () {
     
 
 
-    const UPDATE_INTERVAL = 200; // Update every 200ms (5 times/sec)
+    const UPDATE_INTERVAL = 100; // Update every 200ms (5 times/sec)
     let step = 0; // Track how many simulation steps have been run
         
     function updateGrid() {

@@ -1,60 +1,34 @@
 var simulationShaderModule
-const WORKGROUP_SIZE = 8;
+const WORKGROUP_SIZE = 64;
 var simulationPipeline;
 var cellStateStorage;
 
 function setup_compute_particles(pipelineLayout) {
     
-
     simulationShaderModule = device.createShaderModule({
       label: "Life simulation shader",
       code: `
         @group(0) @binding(0) var<uniform> grid: vec2f;
 
-        @group(0) @binding(1) var<storage> cellStateIn: array<u32>;
-        @group(0) @binding(2) var<storage, read_write> cellStateOut: array<u32>;
+        struct Particle {
+           pos: vec2f,
+           vel: vec2f,
+        };
+        
+        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
 
-        fn cellIndex(cell: vec2u) -> u32 {
-          return (cell.y % u32(grid.y)) * u32(grid.x) +
-                  (cell.x % u32(grid.x));
-        }
-
-        fn cellActive(x: u32, y: u32) -> u32 {
-          return cellStateIn[cellIndex(vec2(x, y))];
-        }
-
-        @compute @workgroup_size(${WORKGROUP_SIZE}, ${WORKGROUP_SIZE})
-        fn computeMain(@builtin(global_invocation_id) cell: vec3u) {
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u) {
           // Determine how many active neighbors this cell has.
-          let activeNeighbors = cellActive(cell.x+1, cell.y+1) +
-                                cellActive(cell.x+1, cell.y) +
-                                cellActive(cell.x+1, cell.y-1) +
-                                cellActive(cell.x, cell.y-1) +
-                                cellActive(cell.x-1, cell.y-1) +
-                                cellActive(cell.x-1, cell.y) +
-                                cellActive(cell.x-1, cell.y+1) +
-                                cellActive(cell.x, cell.y+1);
 
-          let i = cellIndex(cell.xy);
-
-          // Conway's game of life rules:
-          switch activeNeighbors {
-            case 2: {
-              cellStateOut[i] = cellStateIn[i];
-            }
-            case 3: {
-              cellStateOut[i] = 1;
-            }
-            default: {
-              cellStateOut[i] = 0;
-            }
-          }
+          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + cellStateIn[global_idx.x].vel*0.01 ;
         }
       `
     });  
 
     // Create an array representing the active state of each cell.
-    const cellStateArray = new Float32Array(GRID_SIZE * GRID_SIZE * 2);
+    const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 4);
 
     // Create two storage buffers to hold the cell state.
     cellStateStorage = [
@@ -70,8 +44,13 @@ function setup_compute_particles(pipelineLayout) {
       })
     ];
     // Mark every third cell of the first grid as active.
-    for (let i = 0; i < cellStateArray.length; i++) {
-      cellStateArray[i] =  Math.random()-0.5 ;
+
+    for (let i = 0; i < cellStateArray.length; i+=4) {
+      cellStateArray[i] =  Math.random() -0.5;
+      cellStateArray[i+1] =  Math.random() -0.5;
+
+      cellStateArray[i+2] =  cellStateArray[i+1]  ;
+      cellStateArray[i+3] =- cellStateArray[i]  ;
     }
     device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
     device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
@@ -93,8 +72,8 @@ function update_compute_particles(encoder,bindGroups, step)
   const computePass = encoder.beginComputePass();
   computePass.setPipeline(simulationPipeline);
   computePass.setBindGroup(0, bindGroups[step % 2]);
-  const workgroupCount = Math.ceil(GRID_SIZE / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(workgroupCount, workgroupCount);
+  const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+  computePass.dispatchWorkgroups(workgroupCount);
   computePass.end();
 }
     
