@@ -40,32 +40,28 @@ function setup_render_particles(pipelineLayout) {
 
         struct VertexOutput {
           @builtin(position) pos: vec4f,
-          @location(0) cell: vec2f, // New line!
+          @location(0) cell: vec2f, // Not used yet
         };
         
         struct FragInput {
           @location(0) cell: vec2f,
         };
 
-        @group(0) @binding(1) var<storage> cellState: array<u32>; // New!
+
         @group(0) @binding(0) var<uniform> grid: vec2f;
+        @group(0) @binding(1) var<storage> cellState: array<vec2f>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
-          let i = f32(input.instance);
-          let cell = vec2f(i % grid.x, floor(i / grid.x));
-          let cellOffset = cell / grid * 2;
-          let state = f32(cellState[input.instance]); // New line!
-          let gridPos = (input.pos*state+1) / grid - 1 + cellOffset;
-     
           var output: VertexOutput;
+          let i = f32(input.instance);
+          let gridPos = (input.pos.xy / grid) +  cellState[input.instance];
           output.pos = vec4f(gridPos, 0, 1);
-          output.cell = cell; // New line!
+          output.cell = vec2f(0,0); // New line!
           return output;
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            let c = input.cell / grid;
-            return vec4f(c, 1-c.x, 1);
+            return vec4f(1,1, 1, 1);
         }
 
       `
@@ -95,7 +91,7 @@ function draw_particles(encoder, bindGroups, step)
         colorAttachments: [{
           view: context.getCurrentTexture().createView(),
           loadOp: "clear",
-          clearValue: { r: 0, g: 0.3, b: 0.1, a: 1.0 },
+          clearValue: { r: 0, g: 0.0, b: 0.0, a: 1.0 },
           storeOp: "store",
         }]
       });

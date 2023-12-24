@@ -53,16 +53,8 @@ function setup_compute_particles(pipelineLayout) {
       `
     });  
 
-            // Create a uniform buffer that describes the grid.
-    const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE]);
-    const uniformBuffer = device.createBuffer({
-      label: "Grid Uniforms",
-      size: uniformArray.byteLength,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
     // Create an array representing the active state of each cell.
-    const cellStateArray = new Uint32Array(GRID_SIZE * GRID_SIZE);
+    const cellStateArray = new Float32Array(GRID_SIZE * GRID_SIZE * 2);
 
     // Create two storage buffers to hold the cell state.
     cellStateStorage = [
@@ -78,15 +70,10 @@ function setup_compute_particles(pipelineLayout) {
       })
     ];
     // Mark every third cell of the first grid as active.
-    for (let i = 0; i < cellStateArray.length; i+=3) {
-      cellStateArray[i] =  Math.random() > 0.6 ? 1 : 0;
+    for (let i = 0; i < cellStateArray.length; i++) {
+      cellStateArray[i] =  Math.random()-0.5 ;
     }
     device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
-
-    // Mark every other cell of the second grid as active.
-    for (let i = 0; i < cellStateArray.length; i++) {
-      cellStateArray[i] =  Math.random() > 0.6 ? 1 : 0;
-    }
     device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
     // Create a bind group to pass the grid uniforms into the pipeline
     
