@@ -2,10 +2,17 @@ var device;
 var canvasformat;
 var context;
 const NUM_PARTICLES_DIM = 256;
-    
+var canvas_width;
+var canvas_height;
+var bindGroupLayout;
+var uniformBuffer;
+var simulationBindGroups;
+
+
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
-
+  canvas_width = canvas.width;
+  canvas_height = canvas.height;
   // Your WebGPU code will begin here!
   if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
@@ -25,7 +32,7 @@ window.onload =  async  function () {
 
     
     // Create the bind group layout and pipeline layout.
-    const bindGroupLayout = device.createBindGroupLayout({
+     bindGroupLayout = device.createBindGroupLayout({
       label: "Cell Bind Group Layout",
       entries: [{
         binding: 0,
@@ -50,10 +57,10 @@ window.onload =  async  function () {
    setup_render_particles(pipelineLayout);
     setup_compute_particles(pipelineLayout);
  
-
+    
     // Create a uniform buffer that describes the grid.
     const uniformArray = new Float32Array([NUM_PARTICLES_DIM, NUM_PARTICLES_DIM]);
-    const uniformBuffer = device.createBuffer({
+    uniformBuffer = device.createBuffer({
       label: "Grid Uniforms",
       size: uniformArray.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -61,8 +68,41 @@ window.onload =  async  function () {
     device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
     // Create an array representing the active state of each cell.
  
+
+    commonBindGroup = [
+      device.createBindGroup({
+        label: "Compute renderer bind group A",
+        layout: bindGroupLayout, // Updated Line
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: cellStateStorage[1] }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer: renderBufferStorage[0] }
+        }],
+      }),
+      device.createBindGroup({
+        label: "Compute renderer bind group B",
+        layout: bindGroupLayout, // Updated Line
+
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: cellStateStorage[0] }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer: renderBufferStorage[1] }
+        }],
+      }),
+    ];
  
-    const bindGroups = [
+
+    simulationBindGroups =  [
       device.createBindGroup({
         label: "Cell renderer bind group A",
         layout: bindGroupLayout, // Updated Line
@@ -93,7 +133,6 @@ window.onload =  async  function () {
         }],
       }),
     ];
-    
 
 
     const UPDATE_INTERVAL = 1; // Update every 200ms (5 times/sec)
@@ -104,8 +143,8 @@ window.onload =  async  function () {
       
       // Start a render pass 
       const encoder = device.createCommandEncoder();
-      draw_particles(encoder,bindGroups, step);
-      update_compute_particles(encoder,bindGroups, step)
+      draw_particles(encoder, commonBindGroup, step);
+      update_compute_particles(encoder, commonBindGroup, step)
       const commandBuffer = encoder.finish();
       device.queue.submit([commandBuffer]);
       window.requestAnimationFrame(updateGrid);

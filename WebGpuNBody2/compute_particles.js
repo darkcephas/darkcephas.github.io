@@ -2,6 +2,7 @@ var simulationShaderModule
 const WORKGROUP_SIZE = 64;
 var simulationPipeline;
 var cellStateStorage;
+var renderBufferStorage;
 
 function setup_compute_particles(pipelineLayout) {
     
@@ -44,6 +45,32 @@ function setup_compute_particles(pipelineLayout) {
       `
     });  
 
+    renderBufferShaderModule = device.createShaderModule({
+      label: "Render Buffer shader",
+      code: `
+        @group(0) @binding(0) var<uniform> grid: vec2f;
+
+        struct Particle {
+           pos: vec2i,
+           vel: vec2f,
+        };
+
+        
+        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(2) var<storage, read_write> renderBufferOut: array<vec4f>;
+
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
+          // Determine how many active neighbors this cell has.
+          var my_pos = cellStateIn[global_idx.x].pos;
+         
+          renderBufferOut[1]= vec4(1,0,1,1);
+        }
+      `
+    }); 
+
     // Create an array representing the active state of each cell.
     const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 4);
     var as_int = new Int32Array(cellStateArray.buffer);
@@ -76,6 +103,20 @@ function setup_compute_particles(pipelineLayout) {
     device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
     // Create a bind group to pass the grid uniforms into the pipeline
     
+
+    renderBufferStorage = [
+      device.createBuffer({
+        label: "render buffer A",
+        size: 4 * 4 * canvas_width* canvas_height,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      }),
+      device.createBuffer({
+        label: "Render buffer B",
+         size: 4 * 4 * canvas_width* canvas_height,
+         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+    ];
+
      // Create a compute pipeline that updates the game state.
     simulationPipeline = device.createComputePipeline({
       label: "Simulation pipeline",
@@ -85,15 +126,39 @@ function setup_compute_particles(pipelineLayout) {
         entryPoint: "computeMain",
       }
     });
+
+      // Create a compute pipeline that updates the game state.
+      renderBufferPipeline = device.createComputePipeline({
+      label: "Render pipeline",
+      layout: pipelineLayout,
+      compute: {
+        module: renderBufferShaderModule,
+        entryPoint: "computeMain",
+      }
+    });
 }
+
 
 function update_compute_particles(encoder,bindGroups, step)
 {
-  const computePass = encoder.beginComputePass();
-  computePass.setPipeline(simulationPipeline);
-  computePass.setBindGroup(0, bindGroups[step % 2]);
-  const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(workgroupCount);
-  computePass.end();
+  //encoder.clearBuffer(renderBufferStorage[step % 2]);
+
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(simulationPipeline);
+    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  // render out the stars to the buffer that will be then drawn using graphics pipe
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(simulationPipeline);
+    computePass.setBindGroup(0, bindGroups[step % 2]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
 }
     

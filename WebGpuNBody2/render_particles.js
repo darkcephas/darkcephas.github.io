@@ -47,29 +47,21 @@ function setup_render_particles(pipelineLayout) {
           @location(0) vert_pos: vec2f,
         };
 
-        struct Particle {
-          pos: vec2i,
-          vel: vec2f,
-       };
 
 
         @group(0) @binding(0) var<uniform> grid: vec2f;
-        @group(0) @binding(1) var<storage> cellState: array<Particle>;
+        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4f>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
-          let i = f32(input.instance);
-          let real_instance_pos = vec2f(cellState[input.instance].pos) /f32(256*256*256*64);
-          let gridPos = (input.pos.xy / grid) +  real_instance_pos;
+          let gridPos = input.pos.xy;
           output.pos = vec4f(gridPos, 0, 1);
-          output.vert_pos = input.pos.xy; // New line!
+          output.vert_pos = (input.pos.xy+1) *0.5* vec2f(512,512); // New line!
           return output;
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            var r_res = 1.0-dot(input.vert_pos,input.vert_pos);
-            r_res = max(r_res, 0.0);
-            return vec4f(r_res*0.03,r_res*0.1,r_res*0.3,1);
+            return vec4(input.vert_pos.xy,0,1)/512.0;
         }
       `
     });
@@ -119,7 +111,7 @@ function draw_particles(encoder, bindGroups, step)
       pass.setPipeline(cellPipeline);
       pass.setBindGroup(0, bindGroups[step % 2]); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
-      pass.draw(vertices.length / 2, NUM_PARTICLES_DIM * NUM_PARTICLES_DIM);
+      pass.draw(vertices.length / 2);
       // End the render pass and submit the command buffer
       pass.end();
 }
