@@ -61,7 +61,7 @@ function setup_render_particles(pipelineLayout) {
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            return vec4(input.vert_pos.xy,0,1)/512.0;
+            return renderBufferIn[u32(input.vert_pos.x)];
         }
       `
     });
@@ -109,7 +109,7 @@ function draw_particles(encoder, bindGroups, step)
 
       // Draw the grid.
       pass.setPipeline(cellPipeline);
-      pass.setBindGroup(0, bindGroups[step % 2]); // Updated!
+      pass.setBindGroup(0, bindGroups); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
       pass.draw(vertices.length / 2);
       // End the render pass and submit the command buffer

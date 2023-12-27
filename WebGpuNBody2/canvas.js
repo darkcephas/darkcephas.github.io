@@ -81,7 +81,7 @@ window.onload =  async  function () {
           resource: { buffer: cellStateStorage[1] }
         }, {
           binding: 2, // New Entry
-          resource: { buffer: renderBufferStorage[0] }
+          resource: { buffer: renderBufferStorage }
         }],
       }),
       device.createBindGroup({
@@ -96,10 +96,27 @@ window.onload =  async  function () {
           resource: { buffer: cellStateStorage[0] }
         }, {
           binding: 2, // New Entry
-          resource: { buffer: renderBufferStorage[1] }
+          resource: { buffer: renderBufferStorage }
         }],
       }),
     ];
+ 
+
+    graphicsBindGroup = 
+      device.createBindGroup({
+        label: "Compute renderer bind group A",
+        layout: bindGroupLayout, // Updated Line
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: renderBufferStorage }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer:  cellStateStorage[0]}
+        }],
+      });
  
 
     simulationBindGroups =  [
@@ -143,8 +160,8 @@ window.onload =  async  function () {
       
       // Start a render pass 
       const encoder = device.createCommandEncoder();
-      draw_particles(encoder, commonBindGroup, step);
-      update_compute_particles(encoder, commonBindGroup, step)
+      update_compute_particles(encoder, commonBindGroup, step);
+      draw_particles(encoder, graphicsBindGroup, step);
       const commandBuffer = encoder.finish();
       device.queue.submit([commandBuffer]);
       window.requestAnimationFrame(updateGrid);
