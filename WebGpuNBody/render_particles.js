@@ -48,7 +48,7 @@ function setup_render_particles(pipelineLayout) {
         };
 
         struct Particle {
-          pos: vec2f,
+          pos: vec2i,
           vel: vec2f,
        };
 
@@ -59,7 +59,8 @@ function setup_render_particles(pipelineLayout) {
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
           let i = f32(input.instance);
-          let gridPos = (input.pos.xy / grid) +  cellState[input.instance].pos;
+          let real_instance_pos = vec2f(cellState[input.instance].pos) /f32(256*256*256*64);
+          let gridPos = (input.pos.xy / grid) +  real_instance_pos;
           output.pos = vec4f(gridPos, 0, 1);
           output.vert_pos = input.pos.xy; // New line!
           return output;
@@ -68,7 +69,7 @@ function setup_render_particles(pipelineLayout) {
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
             var r_res = 1.0-dot(input.vert_pos,input.vert_pos);
             r_res = max(r_res, 0.0);
-            return vec4f(r_res*0.1,r_res*0.2,r_res*0.3,1);
+            return vec4f(r_res*0.03,r_res*0.1,r_res*0.3,1);
         }
       `
     });

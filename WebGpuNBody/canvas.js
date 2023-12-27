@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_PARTICLES_DIM = 128;
+const NUM_PARTICLES_DIM = 256;
     
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
@@ -96,7 +96,7 @@ window.onload =  async  function () {
     
 
 
-    //const UPDATE_INTERVAL = 33; // Update every 200ms (5 times/sec)
+    const UPDATE_INTERVAL = 1; // Update every 200ms (5 times/sec)
     let step = 0; // Track how many simulation steps have been run
         
     function updateGrid() {
@@ -111,5 +111,6 @@ window.onload =  async  function () {
       window.requestAnimationFrame(updateGrid);
     }
 
+    //window.setInterval(updateGrid, UPDATE_INTERVAL);
     window.requestAnimationFrame(updateGrid);
 }
