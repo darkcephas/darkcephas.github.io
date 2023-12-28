@@ -11,6 +11,9 @@ var simulationBindGroups;
 
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
+  if (!canvas) {
+    throw new Error("No canvas.");
+  }
   canvas_width = canvas.width;
   canvas_height = canvas.height;
   // Your WebGPU code will begin here!
@@ -59,7 +62,7 @@ window.onload =  async  function () {
  
     
     // Create a uniform buffer that describes the grid.
-    const uniformArray = new Float32Array([NUM_PARTICLES_DIM, NUM_PARTICLES_DIM]);
+    const uniformArray = new Float32Array([canvas_width, canvas_height]);
     uniformBuffer = device.createBuffer({
       label: "Grid Uniforms",
       size: uniformArray.byteLength,

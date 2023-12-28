@@ -9,7 +9,7 @@ function setup_compute_particles(pipelineLayout) {
     simulationShaderModule = device.createShaderModule({
       label: "Compute simulation shader",
       code: `
-        @group(0) @binding(0) var<uniform> grid: vec2f;
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
 
         struct Particle {
            pos: vec2i,
@@ -48,7 +48,7 @@ function setup_compute_particles(pipelineLayout) {
     renderBufferShaderModule = device.createShaderModule({
       label: "Render Buffer shader",
       code: `
-        @group(0) @binding(0) var<uniform> grid: vec2f;
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
 
         struct Particle {
            pos: vec2i,
@@ -65,8 +65,8 @@ function setup_compute_particles(pipelineLayout) {
           
           // Determine how many active neighbors this cell has.
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
-          var pixel_loc = ((my_pos+1)*0.5*512);
-          var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) *512;
+          var pixel_loc = ((my_pos+1)*0.5*canvas_size);
+          var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
           renderBufferOut[pixel_index]= vec4(1,1,0,1);
         }
       `

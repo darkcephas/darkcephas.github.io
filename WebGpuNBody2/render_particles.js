@@ -49,19 +49,19 @@ function setup_render_particles(pipelineLayout) {
 
 
 
-        @group(0) @binding(0) var<uniform> grid: vec2f;
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
         @group(0) @binding(1) var<storage> renderBufferIn: array<vec4f>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
           let gridPos = input.pos.xy;
           output.pos = vec4f(gridPos, 0, 1);
-          output.vert_pos = (input.pos.xy+1) *0.5* vec2f(512,512); // New line!
+          output.vert_pos = (input.pos.xy+1) *0.5* canvas_size; // New line!
           return output;
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            return renderBufferIn[u32(input.vert_pos.x) +  u32(input.vert_pos.y) *512];
+            return renderBufferIn[u32(input.vert_pos.x) +  u32(input.vert_pos.y) *u32(canvas_size.x)];
         }
       `
     });
