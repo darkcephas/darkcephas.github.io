@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_PARTICLES_DIM = 16;
+const NUM_PARTICLES_DIM = 64;
 var canvas_width;
 var canvas_height;
 var bindGroupLayout;

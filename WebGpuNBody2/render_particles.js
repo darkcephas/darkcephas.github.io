@@ -61,7 +61,7 @@ function setup_render_particles(pipelineLayout) {
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            return renderBufferIn[u32(input.vert_pos.x)];
+            return renderBufferIn[u32(input.vert_pos.x) +  u32(input.vert_pos.y) *512];
         }
       `
     });

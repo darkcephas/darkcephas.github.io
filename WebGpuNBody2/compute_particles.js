@@ -7,7 +7,7 @@ var renderBufferStorage;
 function setup_compute_particles(pipelineLayout) {
     
     simulationShaderModule = device.createShaderModule({
-      label: "Life simulation shader",
+      label: "Compute simulation shader",
       code: `
         @group(0) @binding(0) var<uniform> grid: vec2f;
 
@@ -64,9 +64,10 @@ function setup_compute_particles(pipelineLayout) {
         @builtin(num_workgroups) num_work:vec3u) {
           
           // Determine how many active neighbors this cell has.
-          var my_pos = cellStateIn[global_idx.x].pos;
-         
-          renderBufferOut[global_idx.x]= vec4(1,1,0,1);
+          var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
+          var pixel_loc = ((my_pos+1)*0.5*512);
+          var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) *512;
+          renderBufferOut[pixel_index]= vec4(1,1,0,1);
         }
       `
     }); 
