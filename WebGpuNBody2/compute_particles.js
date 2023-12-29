@@ -3,6 +3,8 @@ const WORKGROUP_SIZE = 64;
 var simulationPipeline;
 var cellStateStorage;
 var renderBufferStorage;
+var sortPipeline;
+var bindGroupUniformOffset;
 
 function setup_compute_particles(pipelineLayout) {
     
@@ -18,6 +20,8 @@ function setup_compute_particles(pipelineLayout) {
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
+
+      
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
@@ -39,8 +43,8 @@ function setup_compute_particles(pipelineLayout) {
 
           let delta_t = 0.000002;
           let delta_v_as_int = vec2i( cellStateIn[global_idx.x].vel*delta_t * f32(256*256*256*64));
-          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
-          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.05 ;
+         // cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
+          //cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.05 ;
         }
       `
     });  
@@ -67,10 +71,51 @@ function setup_compute_particles(pipelineLayout) {
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
           var pixel_loc = ((my_pos+1)*0.5*canvas_size);
           var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
-          renderBufferOut[pixel_index]= vec4(1,1,0,1);
+          renderBufferOut[pixel_index]= vec4( f32(global_idx.x % 64)/63.0,f32(global_idx.x / 64)/63.0,0,1);
         }
       `
     }); 
+
+
+    sortShaderModule = device.createShaderModule({
+      label: "Particle index sort",
+      code: `
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
+
+        struct Particle {
+           pos: vec2i,
+           vel: vec2f,
+        };
+        
+        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
+
+        @group(1) @binding(0) var<uniform> offsets: vec3u;
+
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
+          let a_idx = global_idx.x*2 + offsets.y ;
+          let b_idx =  global_idx.x*2 +1  + offsets.y;
+
+          if(a_idx < offsets.z && b_idx < offsets.z)
+          {
+            var pos_a =  cellStateOut[a_idx].pos;
+            var pos_b =  cellStateOut[b_idx].pos;
+           
+            if(pos_a.y > pos_b.y){
+              cellStateOut[a_idx].pos = pos_b;
+              cellStateOut[b_idx].pos = pos_a;
+              let vel_a =  cellStateOut[a_idx].vel;
+              cellStateOut[a_idx].vel = cellStateOut[b_idx].vel;
+              cellStateOut[b_idx].vel = vel_a;
+            }
+          }
+
+        }
+      `
+    });  
 
     // Create an array representing the active state of each cell.
     const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 4);
@@ -122,15 +167,84 @@ function setup_compute_particles(pipelineLayout) {
       }
     });
 
+      // Create a uniform buffer that describes the grid.
+      const uniformOffsetsArray00 = new Int32Array([0, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray01 = new Int32Array([0, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      let uniformOffsetsBuffers = [device.createBuffer({
+        label: "Offsets 0 0",
+        size: uniformOffsetsArray00.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      }),
+      device.createBuffer({
+        label: "Offsets 1 1",
+        size: uniformOffsetsArray01.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      })];
+      device.queue.writeBuffer(uniformOffsetsBuffers[0], 0, uniformOffsetsArray00);
+      device.queue.writeBuffer(uniformOffsetsBuffers[1], 0, uniformOffsetsArray01);
+
+      
+      let perPassBindGroupLayout = device.createBindGroupLayout({
+        label: "per pass Bind Group Layout",
+        entries: [{
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE |  GPUShaderStage.FRAGMENT,
+          buffer: {} // Grid uniform buffer
+        }, ]
+      });
+
+      bindGroupUniformOffset = [
+        device.createBindGroup({
+          label: "Offsets 0",
+          layout: perPassBindGroupLayout, 
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformOffsetsBuffers[0] }
+          },],
+        }),
+        device.createBindGroup({
+          label: "Offsets 1",
+          layout: perPassBindGroupLayout, 
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformOffsetsBuffers[1] }
+          },],
+        })]
+
+
       // Create a compute pipeline that updates the game state.
       renderBufferPipeline = device.createComputePipeline({
-      label: "Render pipeline",
-      layout: pipelineLayout,
-      compute: {
-        module: renderBufferShaderModule,
-        entryPoint: "computeMain",
-      }
-    });
+        label: "Render pipeline",
+        layout: pipelineLayout,
+        compute: {
+          module: renderBufferShaderModule,
+          entryPoint: "computeMain",
+        }
+      });
+
+        let bindGroupLayout2 = device.createBindGroupLayout({
+          label: "Bind group for uniforms",
+          entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE |  GPUShaderStage.FRAGMENT,
+            buffer: {} // Grid uniform buffer
+          }, ]
+        });
+
+        const pipelineLayout2 = device.createPipelineLayout({
+          label: "Cell Pipeline Layout",
+          bindGroupLayouts: [ bindGroupLayout, bindGroupLayout2 ],
+        });
+        // Create a compute pipeline that updates the game state.
+    sortPipeline = device.createComputePipeline({
+        label: "Particle sort pipeline",
+        layout: pipelineLayout2,
+        compute: {
+          module: sortShaderModule,
+          entryPoint: "computeMain",
+        }
+      });
+
 }
 
 
@@ -150,6 +264,24 @@ function update_compute_particles(encoder,bindGroups, step)
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(renderBufferPipeline);
     computePass.setBindGroup(0, bindGroups[step % 2]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(sortPipeline);
+    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    computePass.setBindGroup(1, bindGroupUniformOffset[0]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(sortPipeline);
+    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    computePass.setBindGroup(1, bindGroupUniformOffset[1]);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
