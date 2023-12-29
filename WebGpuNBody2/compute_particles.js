@@ -43,8 +43,8 @@ function setup_compute_particles(pipelineLayout) {
 
           let delta_t = 0.000002;
           let delta_v_as_int = vec2i( cellStateIn[global_idx.x].vel*delta_t * f32(256*256*256*64));
-         // cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
-          //cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.05 ;
+          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
+          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.05 ;
         }
       `
     });  
@@ -71,7 +71,8 @@ function setup_compute_particles(pipelineLayout) {
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
           var pixel_loc = ((my_pos+1)*0.5*canvas_size);
           var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
-          renderBufferOut[pixel_index]= vec4( f32(global_idx.x % 64)/63.0,f32(global_idx.x / 64)/63.0,0,1);
+          let linear_y  = f32(global_idx.x / 64)/63.0;
+          renderBufferOut[pixel_index]= vec4( 1-linear_y,linear_y,0,1);
         }
       `
     }); 
@@ -96,8 +97,8 @@ function setup_compute_particles(pipelineLayout) {
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
         @builtin(num_workgroups) num_work:vec3u) {
           
-          let a_idx = global_idx.x*2 + offsets.y ;
-          let b_idx =  global_idx.x*2 +1  + offsets.y;
+          let a_idx = (global_idx.x/offsets.x)*(2*offsets.x) + (global_idx.x % offsets.x) + offsets.y ;
+          let b_idx = a_idx + offsets.x;
 
           if(a_idx < offsets.z && b_idx < offsets.z)
           {
@@ -168,10 +169,12 @@ function setup_compute_particles(pipelineLayout) {
     });
 
       // Create a uniform buffer that describes the grid.
-      const uniformOffsetsArray00 = new Int32Array([0, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
-      const uniformOffsetsArray01 = new Int32Array([0, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray00 = new Int32Array([1, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray01 = new Int32Array([1, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray63_1 = new Int32Array([63, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray255_1 = new Int32Array([255, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
       let uniformOffsetsBuffers = [device.createBuffer({
-        label: "Offsets 0 0",
+        label: "Offsets 1 0",
         size: uniformOffsetsArray00.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       }),
@@ -179,10 +182,21 @@ function setup_compute_particles(pipelineLayout) {
         label: "Offsets 1 1",
         size: uniformOffsetsArray01.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      }),
+      device.createBuffer({
+        label: "Offsets 63 0",
+        size: uniformOffsetsArray63_1.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      }),
+      device.createBuffer({
+        label: "Offsets 255 0",
+        size: uniformOffsetsArray255_1.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       })];
       device.queue.writeBuffer(uniformOffsetsBuffers[0], 0, uniformOffsetsArray00);
       device.queue.writeBuffer(uniformOffsetsBuffers[1], 0, uniformOffsetsArray01);
-
+      device.queue.writeBuffer(uniformOffsetsBuffers[2], 0, uniformOffsetsArray63_1);
+      device.queue.writeBuffer(uniformOffsetsBuffers[3], 0, uniformOffsetsArray255_1);
       
       let perPassBindGroupLayout = device.createBindGroupLayout({
         label: "per pass Bind Group Layout",
@@ -208,6 +222,22 @@ function setup_compute_particles(pipelineLayout) {
           entries: [{
             binding: 0,
             resource: { buffer: uniformOffsetsBuffers[1] }
+          },],
+        }),
+        device.createBindGroup({
+          label: "Offsets 2",
+          layout: perPassBindGroupLayout, 
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformOffsetsBuffers[2] }
+          },],
+        }),
+        device.createBindGroup({
+          label: "Offsets 3",
+          layout: perPassBindGroupLayout, 
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformOffsetsBuffers[3] }
           },],
         })]
 
@@ -250,7 +280,7 @@ function setup_compute_particles(pipelineLayout) {
 
 function update_compute_particles(encoder,bindGroups, step)
 {
-  encoder.clearBuffer(renderBufferStorage);
+
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
@@ -260,10 +290,29 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.end();
   }
   // render out the stars to the buffer that will be then drawn using graphics pipe
+  encoder.clearBuffer(renderBufferStorage);
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(renderBufferPipeline);
     computePass.setBindGroup(0, bindGroups[step % 2]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(sortPipeline);
+    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    computePass.setBindGroup(1, bindGroupUniformOffset[3]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(sortPipeline);
+    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    computePass.setBindGroup(1, bindGroupUniformOffset[2]);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
@@ -286,5 +335,6 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
+
 }
     
