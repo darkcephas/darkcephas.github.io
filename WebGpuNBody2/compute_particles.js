@@ -143,8 +143,8 @@ function setup_compute_particles(pipelineLayout) {
       cellStateArray[i+2] =  cellStateArray[i+1]*25   + (Math.random() -0.5);
       cellStateArray[i+3] =- cellStateArray[i] *25 + (Math.random() -0.5);
 
-      as_int[i] = cellStateArray[i] * (256*256*256*32);
-      as_int[i+1] = cellStateArray[i+1] * (256*256*256*32);
+      as_int[i] = cellStateArray[i] * (256*256*256*64);
+      as_int[i+1] = cellStateArray[i+1] * (256*256*256*64);
     }
     device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
     device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
@@ -286,7 +286,7 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.setPipeline(simulationPipeline);
     computePass.setBindGroup(0, simulationBindGroups[step % 2]);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
+   // computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
   // render out the stars to the buffer that will be then drawn using graphics pipe
