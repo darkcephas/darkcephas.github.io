@@ -35,7 +35,7 @@ function setup_compute_particles(pipelineLayout) {
           {
             if(i != global_idx.x){
               let soft_scale = 0.001;
-              let vector_diff = my_pos - cellStateIn[i].pos;
+              let vector_diff = my_pos - cellStateOut[i].pos;
               let as_float_vecf = vec2f(vector_diff)/ f32(256*256*256*64);
               var diff_length = length(as_float_vecf)+ soft_scale ;
               total_force += - (as_float_vecf) / (diff_length*diff_length*diff_length);
@@ -43,9 +43,9 @@ function setup_compute_particles(pipelineLayout) {
           }
 
           let delta_t = 0.000002;
-          let delta_v_as_int = vec2i( cellStateIn[global_idx.x].vel*delta_t * f32(256*256*256*64));
-          cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
-          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.02 ;
+          let delta_v_as_int = vec2i( cellStateOut[global_idx.x].vel*delta_t * f32(256*256*256*64));
+          cellStateOut[global_idx.x].pos = cellStateOut[global_idx.x].pos + delta_v_as_int;
+          cellStateOut[global_idx.x].vel = cellStateOut[global_idx.x].vel + total_force*delta_t*0.02 ;
           cellStateOut[global_idx.x].id = vec2u((cellStateOut[global_idx.x].pos/i32(256*256*256))+63);
         }
       `
@@ -121,6 +121,45 @@ function setup_compute_particles(pipelineLayout) {
         }
       `
     });  
+
+    massAssignShaderModule = device.createShaderModule({
+      label: "MassAssignment shader",
+      code: `
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
+
+        struct Particle {
+           pos: vec2i,
+           vel: vec2f,
+           id: vec2u,
+        };
+        
+        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(2) var<storage, read_write> mass_array: array<vec3u>;
+        @group(1) @binding(0) var<uniform> offsets: vec3u;
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
+          let sel_x = global_idx.x % 128;
+          let sel_y = global_idx.x / 128;
+          var local_max = 0u;
+          var local_min = 0xFFFFFFFFu;
+          var total_mass = 0u;
+          for(var i = 0u; i < (offsets.z) ; i++)
+          {
+            if(cellStateIn[i].id.x == sel_x && cellStateIn[i].id.y == sel_y)
+            {
+              local_max = max(local_max, i);
+              local_min = min(local_min, i);
+              total_mass++;
+            }
+          }
+          mass_array[global_idx.x].x = total_mass; 
+          mass_array[global_idx.x].y = local_min; 
+          mass_array[global_idx.x].z = local_max; 
+        }
+      `
+    }); 
 
     // Create an array representing the active state of each cell.
     const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 6);
@@ -279,6 +318,14 @@ function setup_compute_particles(pipelineLayout) {
         }
       });
 
+      massAssignPipeline = device.createComputePipeline({
+        label: "Mass assign pipeline",
+        layout: pipelineLayout2,
+        compute: {
+          module: massAssignShaderModule,
+          entryPoint: "computeMain",
+        }
+      });
 }
 
 
@@ -287,7 +334,7 @@ function update_compute_particles(encoder,bindGroups, step)
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
-    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+    computePass.setBindGroup(0, simulationBindGroups);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
@@ -297,7 +344,7 @@ function update_compute_particles(encoder,bindGroups, step)
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(renderBufferPipeline);
-    computePass.setBindGroup(0, bindGroups[step % 2]);
+    computePass.setBindGroup(0, bindGroups[0]);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
@@ -307,7 +354,7 @@ function update_compute_particles(encoder,bindGroups, step)
   {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);
-      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(0, simulationBindGroups);
       computePass.setBindGroup(1, bindGroupUniformOffset[3]);
       const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
       computePass.dispatchWorkgroups(workgroupCount);
@@ -316,7 +363,7 @@ function update_compute_particles(encoder,bindGroups, step)
     {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);
-      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(0, simulationBindGroups);
       computePass.setBindGroup(1, bindGroupUniformOffset[2]);
       const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
       computePass.dispatchWorkgroups(workgroupCount);
@@ -325,7 +372,7 @@ function update_compute_particles(encoder,bindGroups, step)
     {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);
-      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(0, simulationBindGroups);
       computePass.setBindGroup(1, bindGroupUniformOffset[0]);
       const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
       computePass.dispatchWorkgroups(workgroupCount);
@@ -334,12 +381,21 @@ function update_compute_particles(encoder,bindGroups, step)
     {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);
-      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(0, simulationBindGroups);
       computePass.setBindGroup(1, bindGroupUniformOffset[1]);
       const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
       computePass.dispatchWorkgroups(workgroupCount);
       computePass.end();
     }
+  }
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(massAssignPipeline);
+    computePass.setBindGroup(0, simulationBindGroups);
+    computePass.setBindGroup(1, bindGroupUniformOffset[0]);
+    const workgroupCount = Math.ceil((128*128) / WORKGROUP_SIZE);
+    //computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
   }
 }
     

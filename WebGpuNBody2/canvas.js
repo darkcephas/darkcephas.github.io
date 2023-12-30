@@ -122,7 +122,7 @@ window.onload =  async  function () {
       });
  
 
-    simulationBindGroups =  [
+    simulationBindGroups =  
       device.createBindGroup({
         label: "Cell renderer bind group A",
         layout: bindGroupLayout, // Updated Line
@@ -136,26 +136,10 @@ window.onload =  async  function () {
           binding: 2, // New Entry
           resource: { buffer: cellStateStorage[1] }
         }],
-      }),
-      device.createBindGroup({
-        label: "Cell renderer bind group B",
-        layout: bindGroupLayout, // Updated Line
-
-        entries: [{
-          binding: 0,
-          resource: { buffer: uniformBuffer }
-        }, {
-          binding: 1,
-          resource: { buffer: cellStateStorage[1] }
-        }, {
-          binding: 2, // New Entry
-          resource: { buffer: cellStateStorage[0] }
-        }],
-      }),
-    ];
+      });
 
 
-    const UPDATE_INTERVAL = 1; // Update every 200ms (5 times/sec)
+    const UPDATE_INTERVAL = 1; // 
     let step = 0; // Track how many simulation steps have been run
         
     function updateGrid() {
