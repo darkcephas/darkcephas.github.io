@@ -5,6 +5,7 @@ var cellStateStorage;
 var renderBufferStorage;
 var sortPipeline;
 var bindGroupUniformOffset;
+var massAssignBufferStorage;
 
 function setup_compute_particles(pipelineLayout) {
     
@@ -201,6 +202,14 @@ function setup_compute_particles(pipelineLayout) {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
+     massAssignBufferStorage = 
+      device.createBuffer({
+        label: "mass assign storage",
+        size: 4 * 3 * 128* 128,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
+
      // Create a compute pipeline that updates the game state.
     simulationPipeline = device.createComputePipeline({
       label: "Simulation pipeline",
@@ -388,13 +397,14 @@ function update_compute_particles(encoder,bindGroups, step)
       computePass.end();
     }
   }
+  encoder.clearBuffer(massAssignBufferStorage);
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(massAssignPipeline);
-    computePass.setBindGroup(0, simulationBindGroups);
+    computePass.setBindGroup(0, massAssignBindGroups);
     computePass.setBindGroup(1, bindGroupUniformOffset[0]);
     const workgroupCount = Math.ceil((128*128) / WORKGROUP_SIZE);
-    //computePass.dispatchWorkgroups(workgroupCount);
+    computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
 }

@@ -7,7 +7,7 @@ var canvas_height;
 var bindGroupLayout;
 var uniformBuffer;
 var simulationBindGroups;
-
+var massAssignBindGroups;
 
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
@@ -135,6 +135,22 @@ window.onload =  async  function () {
         }, {
           binding: 2, // New Entry
           resource: { buffer: cellStateStorage[1] }
+        }],
+      });
+
+      massAssignBindGroups =  
+      device.createBindGroup({
+        label: "mass assign",
+        layout: bindGroupLayout, // Updated Line
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: cellStateStorage[0] }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer: massAssignBufferStorage }
         }],
       });
 
