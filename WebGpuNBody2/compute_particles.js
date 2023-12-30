@@ -16,6 +16,7 @@ function setup_compute_particles(pipelineLayout) {
         struct Particle {
            pos: vec2i,
            vel: vec2f,
+           id: vec2u,
         };
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
@@ -44,7 +45,8 @@ function setup_compute_particles(pipelineLayout) {
           let delta_t = 0.000002;
           let delta_v_as_int = vec2i( cellStateIn[global_idx.x].vel*delta_t * f32(256*256*256*64));
           cellStateOut[global_idx.x].pos = cellStateIn[global_idx.x].pos + delta_v_as_int;
-          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.05 ;
+          cellStateOut[global_idx.x].vel = cellStateIn[global_idx.x].vel + total_force*delta_t*0.02 ;
+          cellStateOut[global_idx.x].id = vec2u((cellStateOut[global_idx.x].pos/i32(256*256*256))+63);
         }
       `
     });  
@@ -57,6 +59,7 @@ function setup_compute_particles(pipelineLayout) {
         struct Particle {
            pos: vec2i,
            vel: vec2f,
+           id: vec2u,
         };
 
         
@@ -69,10 +72,12 @@ function setup_compute_particles(pipelineLayout) {
           
           // Determine how many active neighbors this cell has.
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
+          // my pos will be -1,1 viewport in normalized
           var pixel_loc = ((my_pos+1)*0.5*canvas_size);
           var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
-          let linear_y  = f32(global_idx.x / 64)/63.0;
-          renderBufferOut[pixel_index]= vec4( 1-linear_y,linear_y,0,1);
+          let linear_y  = f32(cellStateIn[global_idx.x].id.y)/128.0;
+          let linear_x  = f32(cellStateIn[global_idx.x].id.x)/128.0;
+          renderBufferOut[pixel_index]= vec4( 1-linear_y,linear_y,linear_x,1);
         }
       `
     }); 
@@ -86,6 +91,7 @@ function setup_compute_particles(pipelineLayout) {
         struct Particle {
            pos: vec2i,
            vel: vec2f,
+           id: vec2u,
         };
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
@@ -102,15 +108,13 @@ function setup_compute_particles(pipelineLayout) {
 
           if(a_idx < offsets.z && b_idx < offsets.z)
           {
-            var pos_a =  cellStateOut[a_idx].pos;
-            var pos_b =  cellStateOut[b_idx].pos;
+            var pos_a =  cellStateOut[a_idx].id.x + cellStateOut[a_idx].id.y *128;
+            var pos_b =  cellStateOut[b_idx].id.x + cellStateOut[b_idx].id.y *128;
            
-            if(pos_a.y > pos_b.y){
-              cellStateOut[a_idx].pos = pos_b;
-              cellStateOut[b_idx].pos = pos_a;
-              let vel_a =  cellStateOut[a_idx].vel;
-              cellStateOut[a_idx].vel = cellStateOut[b_idx].vel;
-              cellStateOut[b_idx].vel = vel_a;
+            if(pos_a > pos_b){
+              var particle_saved = cellStateOut[a_idx];
+              cellStateOut[a_idx] = cellStateOut[b_idx];
+              cellStateOut[b_idx] = particle_saved;
             }
           }
 
@@ -119,7 +123,7 @@ function setup_compute_particles(pipelineLayout) {
     });  
 
     // Create an array representing the active state of each cell.
-    const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 4);
+    const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 6);
     var as_int = new Int32Array(cellStateArray.buffer);
     // Create two storage buffers to hold the cell state.
     cellStateStorage = [
@@ -136,7 +140,7 @@ function setup_compute_particles(pipelineLayout) {
     ];
     // Mark every third cell of the first grid as active.
 
-    for (let i = 0; i < cellStateArray.length; i+=4) {
+    for (let i = 0; i < cellStateArray.length; i+=6) {
       cellStateArray[i] =  Math.random() -0.5;
       cellStateArray[i+1] =  Math.random() -0.5;
 
@@ -280,13 +284,12 @@ function setup_compute_particles(pipelineLayout) {
 
 function update_compute_particles(encoder,bindGroups, step)
 {
-
   {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
     computePass.setBindGroup(0, simulationBindGroups[step % 2]);
     const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-   // computePass.dispatchWorkgroups(workgroupCount);
+    computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
   // render out the stars to the buffer that will be then drawn using graphics pipe
@@ -299,42 +302,44 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
+  
+  for (let i = 0; i < 10; i++) {
   {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(sortPipeline);
-    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
-    computePass.setBindGroup(1, bindGroupUniformOffset[3]);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
+      const computePass = encoder.beginComputePass();
+      computePass.setPipeline(sortPipeline);
+      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(1, bindGroupUniformOffset[3]);
+      const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+      computePass.dispatchWorkgroups(workgroupCount);
+      computePass.end();
+    }
+    {
+      const computePass = encoder.beginComputePass();
+      computePass.setPipeline(sortPipeline);
+      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(1, bindGroupUniformOffset[2]);
+      const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+      computePass.dispatchWorkgroups(workgroupCount);
+      computePass.end();
+    }
+    {
+      const computePass = encoder.beginComputePass();
+      computePass.setPipeline(sortPipeline);
+      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(1, bindGroupUniformOffset[0]);
+      const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+      computePass.dispatchWorkgroups(workgroupCount);
+      computePass.end();
+    }
+    {
+      const computePass = encoder.beginComputePass();
+      computePass.setPipeline(sortPipeline);
+      computePass.setBindGroup(0, simulationBindGroups[step % 2]);
+      computePass.setBindGroup(1, bindGroupUniformOffset[1]);
+      const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+      computePass.dispatchWorkgroups(workgroupCount);
+      computePass.end();
+    }
   }
-  {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(sortPipeline);
-    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
-    computePass.setBindGroup(1, bindGroupUniformOffset[2]);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
-  }
-  {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(sortPipeline);
-    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
-    computePass.setBindGroup(1, bindGroupUniformOffset[0]);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
-  }
-  {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(sortPipeline);
-    computePass.setBindGroup(0, simulationBindGroups[step % 2]);
-    computePass.setBindGroup(1, bindGroupUniformOffset[1]);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
-  }
-
 }
     
