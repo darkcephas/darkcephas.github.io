@@ -8,6 +8,8 @@ var bindGroupLayout;
 var uniformBuffer;
 var simulationBindGroups;
 var massAssignBindGroups;
+var starGraphicsBindGroup;
+var massGraphicsBindGroup;
 
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
@@ -105,7 +107,7 @@ window.onload =  async  function () {
     ];
  
 
-    graphicsBindGroup = 
+    massGraphicsBindGroup = 
       device.createBindGroup({
         label: "Compute renderer bind group A",
         layout: bindGroupLayout, // Updated Line
@@ -115,6 +117,22 @@ window.onload =  async  function () {
         }, {
           binding: 1,
           resource: { buffer: massAssignBufferStorage }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer:  cellStateStorage}
+        }],
+      });
+ 
+    starGraphicsBindGroup = 
+      device.createBindGroup({
+        label: "Compute renderer bind group A",
+        layout: bindGroupLayout, // Updated Line
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: renderBufferStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer:  cellStateStorage}
@@ -164,7 +182,7 @@ window.onload =  async  function () {
       // Start a render pass 
       const encoder = device.createCommandEncoder();
       update_compute_particles(encoder, commonBindGroup, step);
-      draw_particles(encoder, graphicsBindGroup, step);
+      draw_particles(encoder, step);
       const commandBuffer = encoder.finish();
       device.queue.submit([commandBuffer]);
       window.requestAnimationFrame(updateGrid);

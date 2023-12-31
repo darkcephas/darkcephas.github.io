@@ -43,11 +43,12 @@ function setup_compute_particles(pipelineLayout) {
             }
           }
 
-          let delta_t = 0.00002;
+          let delta_t = 0.000002;
           let delta_v_as_int = vec2i( cellStateOut[global_idx.x].vel*delta_t * f32(256*256*256*64));
           cellStateOut[global_idx.x].pos = cellStateOut[global_idx.x].pos + delta_v_as_int;
           cellStateOut[global_idx.x].vel = cellStateOut[global_idx.x].vel + total_force*delta_t*0.02 ;
-          cellStateOut[global_idx.x].id = vec2u((cellStateOut[global_idx.x].pos/i32(256*256*256))+63);
+          cellStateOut[global_idx.x].id = vec2u(((cellStateOut[global_idx.x].pos + i32(256*256*256*63))
+                           /i32(256*256*256)));
         }
       `
     });  
@@ -334,25 +335,7 @@ function setup_compute_particles(pipelineLayout) {
 
 function update_compute_particles(encoder,bindGroups, step)
 {
-  {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(simulationPipeline);
-    computePass.setBindGroup(0, simulationBindGroups);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
-  }
-  // render out the stars to the buffer that will be then drawn using graphics pipe
-  encoder.clearBuffer(renderBufferStorage);
-  {
-    const computePass = encoder.beginComputePass();
-    computePass.setPipeline(renderBufferPipeline);
-    computePass.setBindGroup(0, bindGroups[0]);
-    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-    computePass.dispatchWorkgroups(workgroupCount);
-    computePass.end();
-  }
-  
+
   for (let i = 0; i < 10; i++) {
   {
       const computePass = encoder.beginComputePass();
@@ -391,8 +374,9 @@ function update_compute_particles(encoder,bindGroups, step)
       computePass.end();
     }
   }
-  encoder.clearBuffer(massAssignBufferStorage);
+
   {
+    encoder.clearBuffer(massAssignBufferStorage);
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(massAssignPipeline);
     computePass.setBindGroup(0, massAssignBindGroups);
@@ -401,5 +385,26 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.dispatchWorkgroups(workgroupCount);
     computePass.end();
   }
+
+  {
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(simulationPipeline);
+    computePass.setBindGroup(0, simulationBindGroups);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+
+  {
+    // render out the stars to the buffer that will be then drawn using graphics pipe
+    encoder.clearBuffer(renderBufferStorage);
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(renderBufferPipeline);
+    computePass.setBindGroup(0, bindGroups[0]);
+    const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+  
 }
     
