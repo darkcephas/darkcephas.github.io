@@ -81,7 +81,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: cellStateStorage[1] }
+          resource: { buffer: cellStateStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer: renderBufferStorage }
@@ -96,7 +96,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: cellStateStorage[0] }
+          resource: { buffer: cellStateStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer: renderBufferStorage }
@@ -114,10 +114,10 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: renderBufferStorage }
+          resource: { buffer: massAssignBufferStorage }
         }, {
           binding: 2, // New Entry
-          resource: { buffer:  cellStateStorage[0]}
+          resource: { buffer:  cellStateStorage}
         }],
       });
  
@@ -131,10 +131,10 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: cellStateStorage[0] }
+          resource: { buffer: renderBufferStorage }
         }, {
           binding: 2, // New Entry
-          resource: { buffer: cellStateStorage[1] }
+          resource: { buffer: cellStateStorage }
         }],
       });
 
@@ -147,7 +147,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: cellStateStorage[0] }
+          resource: { buffer: cellStateStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer: massAssignBufferStorage }

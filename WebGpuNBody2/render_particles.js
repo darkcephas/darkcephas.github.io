@@ -50,7 +50,7 @@ function setup_render_particles(pipelineLayout) {
 
 
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
-        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4f>;
+        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4u>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
@@ -61,7 +61,13 @@ function setup_render_particles(pipelineLayout) {
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-            return renderBufferIn[u32(input.vert_pos.x) +  u32(input.vert_pos.y) *u32(canvas_size.x)];
+          let x_pixel = u32(input.vert_pos.x);
+          let y_pixel = u32(input.vert_pos.y);
+
+
+          let mass = renderBufferIn[x_pixel/5+  (y_pixel/5)*128u].x;
+          return vec4f(f32(mass)/30.0, 0, 0 ,1);
+
         }
       `
     });

@@ -20,7 +20,7 @@ function setup_compute_particles(pipelineLayout) {
            id: vec2u,
         };
         
-        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(1) var<storage> not_used: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
 
       
@@ -30,7 +30,7 @@ function setup_compute_particles(pipelineLayout) {
         @builtin(num_workgroups) num_work:vec3u) {
           
           // Determine how many active neighbors this cell has.
-          var my_pos = cellStateIn[global_idx.x].pos;
+          var my_pos = cellStateOut[global_idx.x].pos;
           var total_force = vec2f(0,0);
           for(var i = 0u; i < (num_work.x * u32(${WORKGROUP_SIZE})) ; i++)
           {
@@ -43,7 +43,7 @@ function setup_compute_particles(pipelineLayout) {
             }
           }
 
-          let delta_t = 0.000002;
+          let delta_t = 0.00002;
           let delta_v_as_int = vec2i( cellStateOut[global_idx.x].vel*delta_t * f32(256*256*256*64));
           cellStateOut[global_idx.x].pos = cellStateOut[global_idx.x].pos + delta_v_as_int;
           cellStateOut[global_idx.x].vel = cellStateOut[global_idx.x].vel + total_force*delta_t*0.02 ;
@@ -98,7 +98,7 @@ function setup_compute_particles(pipelineLayout) {
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
 
-        @group(1) @binding(0) var<uniform> offsets: vec3u;
+        @group(1) @binding(0) var<uniform> offsets: vec4u;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
@@ -136,7 +136,7 @@ function setup_compute_particles(pipelineLayout) {
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> mass_array: array<vec3u>;
-        @group(1) @binding(0) var<uniform> offsets: vec3u;
+        @group(1) @binding(0) var<uniform> offsets: vec4u;
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
         @builtin(num_workgroups) num_work:vec3u) {
@@ -166,18 +166,12 @@ function setup_compute_particles(pipelineLayout) {
     const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 6);
     var as_int = new Int32Array(cellStateArray.buffer);
     // Create two storage buffers to hold the cell state.
-    cellStateStorage = [
+    cellStateStorage = 
       device.createBuffer({
         label: "Cell State A",
         size: cellStateArray.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      }),
-      device.createBuffer({
-        label: "Cell State B",
-         size: cellStateArray.byteLength,
-         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      })
-    ];
+      });
     // Mark every third cell of the first grid as active.
 
     for (let i = 0; i < cellStateArray.length; i+=6) {
@@ -190,8 +184,8 @@ function setup_compute_particles(pipelineLayout) {
       as_int[i] = cellStateArray[i] * (256*256*256*64);
       as_int[i+1] = cellStateArray[i+1] * (256*256*256*64);
     }
-    device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
-    device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
+    device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);
+
     // Create a bind group to pass the grid uniforms into the pipeline
     
 
@@ -205,7 +199,7 @@ function setup_compute_particles(pipelineLayout) {
      massAssignBufferStorage = 
       device.createBuffer({
         label: "mass assign storage",
-        size: 4 * 3 * 128* 128,
+        size: 4 * 4 * 128* 128,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
@@ -221,10 +215,10 @@ function setup_compute_particles(pipelineLayout) {
     });
 
       // Create a uniform buffer that describes the grid.
-      const uniformOffsetsArray00 = new Int32Array([1, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
-      const uniformOffsetsArray01 = new Int32Array([1, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
-      const uniformOffsetsArray63_1 = new Int32Array([63, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
-      const uniformOffsetsArray255_1 = new Int32Array([255, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM)]);
+      const uniformOffsetsArray00 = new Int32Array([1, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
+      const uniformOffsetsArray01 = new Int32Array([1, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
+      const uniformOffsetsArray63_1 = new Int32Array([63, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
+      const uniformOffsetsArray255_1 = new Int32Array([255, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
       let uniformOffsetsBuffers = [device.createBuffer({
         label: "Offsets 1 0",
         size: uniformOffsetsArray00.byteLength,
