@@ -96,7 +96,7 @@ function setup_compute_particles(pipelineLayout) {
            id: vec2u,
         };
         
-        @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
+        @group(0) @binding(1) var<storage> not_used: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> cellStateOut: array<Particle>;
 
         @group(1) @binding(0) var<uniform> offsets: vec4u;
@@ -163,6 +163,78 @@ function setup_compute_particles(pipelineLayout) {
       `
     }); 
 
+
+    optsimShaderModule = device.createShaderModule({
+      label: "Compute simulation shader",
+      code: `
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
+
+        struct Particle {
+           pos: vec2i,
+           vel: vec2f,
+           id: vec2u,
+        };
+        
+        @group(0) @binding(1) var<storage> mass_assign: array<vec4u>;
+        @group(0) @binding(2) var<storage, read_write> particleArray: array<Particle>;
+
+      
+
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
+          let partIdx = global_idx.x;
+          // Determine how many active neighbors this cell has.
+          var my_pos = particleArray[partIdx].pos;
+          var coarse_id = particleArray[partIdx].id;
+          var total_force = vec2f(0,0);
+          for(var i = 0u; i < 128 ; i++)
+          {
+            for(var j = 0u; j < 128 ; j++)
+            {
+              let massSample = mass_assign[i+j*128];
+              let sample_id = vec2u(i,j);
+
+              if( sample_id.x != coarse_id.x &&  sample_id.y != coarse_id.y){
+                {
+                  let soft_scale = 0.001;
+                  let vector_diff =  (vec2f(coarse_id) -  vec2f(sample_id));
+                  let as_float_vecf = vec2f(vector_diff)/ f32(64);
+                  var diff_length = length(as_float_vecf)+ soft_scale ;
+                  total_force += - (f32(massSample.x) * as_float_vecf) / (diff_length*diff_length*diff_length);
+                }
+
+
+                if(false){
+                  for(var k = massSample.y; k <=massSample.z ; k++)
+                  {
+                    if(k != partIdx){
+                      let soft_scale = 0.001;
+                      let vector_diff = my_pos - particleArray[k].pos;
+                      let as_float_vecf = vec2f(vector_diff)/ f32(256*256*256*64);
+                      var diff_length = length(as_float_vecf)+ soft_scale ;
+                      total_force += - (as_float_vecf) / (diff_length*diff_length*diff_length);
+                    }
+                  }
+                }
+              }
+    
+            }
+          }
+
+          let delta_t = 0.00002;
+          let delta_v_as_int = vec2i( particleArray[partIdx].vel*delta_t * f32(256*256*256*64));
+          particleArray[partIdx].pos = particleArray[partIdx].pos + delta_v_as_int;
+          particleArray[partIdx].vel = particleArray[partIdx].vel + total_force*delta_t*0.01 ;
+
+          // update the coarse grained location for next pass
+          particleArray[partIdx].id = vec2u(((particleArray[partIdx].pos + i32(256*256*256*63))
+                           /i32(256*256*256)));
+        }
+      `
+    });  
+
     // Create an array representing the active state of each cell.
     const cellStateArray = new Float32Array(NUM_PARTICLES_DIM * NUM_PARTICLES_DIM * 6);
     var as_int = new Int32Array(cellStateArray.buffer);
@@ -210,7 +282,7 @@ function setup_compute_particles(pipelineLayout) {
       label: "Simulation pipeline",
       layout: pipelineLayout,
       compute: {
-        module: simulationShaderModule,
+        module: optsimShaderModule,
         entryPoint: "computeMain",
       }
     });
@@ -336,7 +408,7 @@ function setup_compute_particles(pipelineLayout) {
 function update_compute_particles(encoder,bindGroups, step)
 {
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 1; i++) {
   {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);

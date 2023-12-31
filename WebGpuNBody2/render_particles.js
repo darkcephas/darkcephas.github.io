@@ -202,7 +202,7 @@ function draw_particles(encoder, step)
       pass.setPipeline(massRenderPipeline);
       pass.setBindGroup(0, massGraphicsBindGroup); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
-      pass.draw(vertices.length / 2);
+      //pass.draw(vertices.length / 2);
       // End the render pass and submit the command buffer
       pass.end();
 }
