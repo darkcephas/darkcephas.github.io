@@ -195,8 +195,11 @@ function setup_compute_particles(pipelineLayout) {
             {
               let massSample = mass_assign[i+j*128];
               let sample_id = vec2u(i,j);
-
-              if( sample_id.x != coarse_id.x &&  sample_id.y != coarse_id.y){
+              let sample_id_diff  = vec2i(sample_id)- vec2i(coarse_id);
+              let accept_diff = 1i;
+              let within_x = sample_id_diff.x <=accept_diff && sample_id_diff.x >= -accept_diff;
+              let within_y = sample_id_diff.y <=accept_diff && sample_id_diff.y >= -accept_diff;
+              if( !within_x || !within_y){
                 {
                   let soft_scale = 0.001;
                   let vector_diff =  (vec2f(coarse_id) -  vec2f(sample_id));
@@ -204,9 +207,9 @@ function setup_compute_particles(pipelineLayout) {
                   var diff_length = length(as_float_vecf)+ soft_scale ;
                   total_force += - (f32(massSample.x) * as_float_vecf) / (diff_length*diff_length*diff_length);
                 }
-
-
-                if(false){
+              }
+              else{
+                if(massSample.x > 0){
                   for(var k = massSample.y; k <=massSample.z ; k++)
                   {
                     if(k != partIdx){
@@ -219,7 +222,7 @@ function setup_compute_particles(pipelineLayout) {
                   }
                 }
               }
-    
+            
             }
           }
 
@@ -404,11 +407,10 @@ function setup_compute_particles(pipelineLayout) {
       });
 }
 
-
 function update_compute_particles(encoder,bindGroups, step)
 {
 
-  for (let i = 0; i < 1; i++) {
+  for (let i = 0; i < 100; i++) {
   {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);
