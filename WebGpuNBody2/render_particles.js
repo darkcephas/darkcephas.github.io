@@ -68,6 +68,8 @@ function setup_render_particles(pipelineLayout) {
           let star_count = f32(renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel]);
    
           return vec4f(star_count/10.0,star_count/16.0,star_count/2.0 ,1) ;
+
+;
         }
       `
     });
@@ -122,7 +124,7 @@ function setup_render_particles(pipelineLayout) {
 
 
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
-        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4u>;
+        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4f>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
@@ -141,9 +143,9 @@ function setup_render_particles(pipelineLayout) {
           var misaligned_amount = 0u;
           if(mass_assign_data.x > 0)
           {
-            misaligned_amount =(1+mass_assign_data.z-mass_assign_data.y)-mass_assign_data.x;
+            //misaligned_amount =(1+mass_assign_data.z-mass_assign_data.y)-mass_assign_data.x;
           }
-          return vec4f(f32(misaligned_amount)/50.0, 0, 0 ,1);
+          return vec4f(-mass_assign_data.zw/50000, 0.0 ,1.0);
 
         }
       `
@@ -202,7 +204,7 @@ function draw_particles(encoder, step)
       pass.setPipeline(massRenderPipeline);
       pass.setBindGroup(0, massGraphicsBindGroup); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
-      pass.draw(vertices.length / 2);
+      //pass.draw(vertices.length / 2);
       // End the render pass and submit the command buffer
       pass.end();
 }

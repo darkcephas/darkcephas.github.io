@@ -1,11 +1,15 @@
 var simulationShaderModule
 const WORKGROUP_SIZE = 256;
+const SOFT_SCALE =  0.001;
+const COARSE_RANGE = 2;
+const DELTA_T = 0.000001;
 var simulationPipeline;
 var cellStateStorage;
 var renderBufferStorage;
 var sortPipeline;
 var bindGroupUniformOffset;
 var massAssignBufferStorage;
+var forceIndexBufferStorage;
 
 function setup_compute_particles(pipelineLayout) {
     
@@ -137,10 +141,10 @@ function setup_compute_particles(pipelineLayout) {
         };
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
-        @group(0) @binding(2) var<storage, read_write> mass_array: array<vec3u>;
+        @group(0) @binding(2) var<storage, read_write> mass_array: array<vec4u>;
         @group(1) @binding(0) var<uniform> offsets: vec4u;
         @compute @workgroup_size(${WORKGROUP_SIZE})
-        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        fn computeMain(@builtin(global_invocation_id) global_idx:vec3u,
         @builtin(num_workgroups) num_work:vec3u) {
           
           let sel_x = global_idx.x % 128;
@@ -165,8 +169,56 @@ function setup_compute_particles(pipelineLayout) {
     }); 
 
 
+    forceIndexShaderModule = device.createShaderModule({
+      label: "Force Index shader",
+      code: `
+        @group(0) @binding(0) var<uniform> canvas_size: vec2f;
+
+
+        @group(0) @binding(1) var<storage> massAssign: array<vec4u>;
+        @group(0) @binding(2) var<storage, read_write> forceIndex: array<vec4f>;
+        @group(1) @binding(0) var<uniform> offsets: vec4u;
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+        @builtin(num_workgroups) num_work:vec3u) {
+          
+          let massIdx = global_idx.x;
+          // Determine how many active neighbors this cell has.
+          var coarse_id = vec2i(i32(massIdx % 128), i32(massIdx / 128));
+          var total_force = vec2f(0,0);
+          let soft_scale = ${SOFT_SCALE};
+          for(var i = 0u; i < 128 ; i++) {
+            for(var j = 0u; j < 128 ; j++){
+              let massSample = massAssign[i+j*128];
+              let sample_id = vec2u(i,j);
+              let sample_id_diff  = vec2i(sample_id)- vec2i(coarse_id);
+              let accept_diff = ${COARSE_RANGE};
+              let within_x = sample_id_diff.x <=accept_diff && sample_id_diff.x >= -accept_diff;
+              let within_y = sample_id_diff.y <=accept_diff && sample_id_diff.y >= -accept_diff;
+              if( !within_x || !within_y )
+              {
+                let vector_diff =  (vec2f(coarse_id) -  vec2f(sample_id));
+                let as_float_vecf = vec2f(vector_diff)/ f32(64);
+                var diff_length = length(as_float_vecf)+ soft_scale ;
+                total_force += -(f32(massSample.x) * as_float_vecf) / (diff_length*diff_length*diff_length);
+              }
+            }
+          }
+
+          // update the coarse grained location for next pass
+          var massingIndex = vec2f(-1,-1);
+          if(massAssign[massIdx].x > 0)
+          {
+            massingIndex = vec2f(massAssign[massIdx].yz);
+          }
+          forceIndex[massIdx] = vec4f(massingIndex,total_force);
+        }
+      `
+    }); 
+
+
     optsimShaderModule = device.createShaderModule({
-      label: "Compute simulation shader",
+      label: "Opt Compute simulation shader",
       code: `
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
 
@@ -176,7 +228,7 @@ function setup_compute_particles(pipelineLayout) {
            id: vec2u,
         };
         
-        @group(0) @binding(1) var<storage> mass_assign: array<vec4u>;
+        @group(0) @binding(1) var<storage> mass_assign: array<vec4f>;
         @group(0) @binding(2) var<storage, read_write> particleArray: array<Particle>;
 
       
@@ -188,49 +240,40 @@ function setup_compute_particles(pipelineLayout) {
           let partIdx = global_idx.x;
           // Determine how many active neighbors this cell has.
           var my_pos = particleArray[partIdx].pos;
-          var coarse_id = particleArray[partIdx].id;
+          var coarse_id = vec2i(particleArray[partIdx].id);
           var total_force = vec2f(0,0);
-          let soft_scale = 0.001;
-          for(var i = 0u; i < 128 ; i++)
+        
+          total_force += mass_assign[coarse_id.x + coarse_id.y *128].zw;
+
+          let vec_coarse_range = vec2i( ${COARSE_RANGE}, ${COARSE_RANGE});
+          let coarse_min = max(coarse_id - vec_coarse_range, vec2i(0,0));
+          let coarse_max = min(coarse_id + vec_coarse_range, vec2i(128,128));
+
+          for(var i = coarse_min.x; i < coarse_max.x ; i++)
           {
-            for(var j = 0u; j < 128 ; j++)
+            for(var j = coarse_min.y; j < coarse_max.y ; j++)
             {
-              let massSample = mass_assign[i+j*128];
-              let sample_id = vec2u(i,j);
-              let sample_id_diff  = vec2i(sample_id)- vec2i(coarse_id);
-              let accept_diff = 2i;
-              let within_x = sample_id_diff.x <=accept_diff && sample_id_diff.x >= -accept_diff;
-              let within_y = sample_id_diff.y <=accept_diff && sample_id_diff.y >= -accept_diff;
-              if( !within_x || !within_y){
-                {
-                  
-                  let vector_diff =  (vec2f(coarse_id) -  vec2f(sample_id));
-                  let as_float_vecf = vec2f(vector_diff)/ f32(64);
-                  var diff_length = length(as_float_vecf)+ soft_scale ;
-                  total_force += - (f32(massSample.x) * as_float_vecf) / (diff_length*diff_length*diff_length);
-                }
-              }
-              else{
-                if(massSample.x > 0){
-                  for(var k = massSample.y; k <=massSample.z ; k++)
+               let massSample = mass_assign[i+j*128];
+                if(true){
+                  for(var k = u32(massSample.x); k <=u32(massSample.y) ; k++)
                   {
                     if(k != partIdx){
                       let vector_diff = my_pos - particleArray[k].pos;
                       let as_float_vecf = vec2f(vector_diff)/ f32(256*256*256*64);
+                      let soft_scale = ${SOFT_SCALE};
                       var diff_length = length(as_float_vecf)+ soft_scale ;
                       total_force += - (as_float_vecf) / (diff_length*diff_length*diff_length);
                     }
                   }
-                }
-              }
-            
+                }           
             }
           }
 
-          let delta_t = 0.000001;
-          let delta_v_as_int = vec2i( particleArray[partIdx].vel*delta_t * f32(256*256*256*64));
-          particleArray[partIdx].pos = particleArray[partIdx].pos + delta_v_as_int;
-          particleArray[partIdx].vel = particleArray[partIdx].vel + total_force*delta_t*0.02 ;
+          let delta_t = ${DELTA_T};
+          let delta_v_with_t_as_int = vec2i( particleArray[partIdx].vel*delta_t * f32(256*256*256*64));
+          let force_mult = 0.05;
+          particleArray[partIdx].pos = particleArray[partIdx].pos + delta_v_with_t_as_int;
+          particleArray[partIdx].vel = particleArray[partIdx].vel + total_force*delta_t* force_mult;
 
           // update the coarse grained location for next pass
           particleArray[partIdx].id = vec2u(((particleArray[partIdx].pos + i32(256*256*256*63))
@@ -280,6 +323,13 @@ function setup_compute_particles(pipelineLayout) {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
+      forceIndexBufferStorage = 
+      device.createBuffer({
+        label: "Force index buffer storage",
+        size: 4 * 4 * 128* 128,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
 
      // Create a compute pipeline that updates the game state.
     simulationPipeline = device.createComputePipeline({
@@ -296,8 +346,8 @@ function setup_compute_particles(pipelineLayout) {
       const uniformOffsetsArray01 = new Int32Array([1, 1, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
       const uniformOffsetsArray63_1 = new Int32Array([63, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
       const uniformOffsetsArray255_1 = new Int32Array([255, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
-      const uniformOffsetsArray1k_1 = new Int32Array([63, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
-      const uniformOffsetsArray4k_1 = new Int32Array([255, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
+      const uniformOffsetsArray1k_1 = new Int32Array([1023, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
+      const uniformOffsetsArray4k_1 = new Int32Array([4095, 0, (NUM_PARTICLES_DIM* NUM_PARTICLES_DIM),0]);
       let uniformOffsetsBuffers = [device.createBuffer({
         label: "Offsets 1 0",
         size: uniformOffsetsArray00.byteLength,
@@ -435,6 +485,15 @@ function setup_compute_particles(pipelineLayout) {
           entryPoint: "computeMain",
         }
       });
+
+      forceIndexPipeline = device.createComputePipeline({
+        label: "force index pipeline",
+        layout: pipelineLayout2,
+        compute: {
+          module: forceIndexShaderModule,
+          entryPoint: "computeMain",
+        }
+      });
 }
 
 function update_compute_particles(encoder,bindGroups, step)
@@ -448,7 +507,7 @@ function update_compute_particles(encoder,bindGroups, step)
       computePass.setBindGroup(0, simulationBindGroups);
       computePass.setBindGroup(1, bindGroupUniformOffset[j]);
       const workgroupCount = Math.ceil((NUM_PARTICLES_DIM* NUM_PARTICLES_DIM) / WORKGROUP_SIZE);
-      computePass.dispatchWorkgroups(workgroupCount);
+      computePass.dispatchWorkgroups(workgroupCount/2);
       computePass.end();
     }
   }
@@ -464,7 +523,18 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.end();
   }
 
-  for (let i = 0; i < 3; i++) {
+  {
+    encoder.clearBuffer(forceIndexBufferStorage);
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(forceIndexPipeline);
+    computePass.setBindGroup(0, forceIndexBindGroups);
+    computePass.setBindGroup(1, bindGroupUniformOffset[0]);
+    const workgroupCount = Math.ceil((128*128) / WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(workgroupCount);
+    computePass.end();
+  }
+
+  for (let i = 0; i < 1; i++) {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
     computePass.setBindGroup(0, simulationBindGroups);

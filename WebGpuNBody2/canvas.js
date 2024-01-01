@@ -10,6 +10,7 @@ var simulationBindGroups;
 var massAssignBindGroups;
 var starGraphicsBindGroup;
 var massGraphicsBindGroup;
+var forceIndexBindGroups;
 
 window.onload =  async  function () {
   const canvas = document.querySelector("canvas");
@@ -116,7 +117,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: massAssignBufferStorage }
+          resource: { buffer: forceIndexBufferStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer:  cellStateStorage}
@@ -149,7 +150,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: massAssignBufferStorage }
+          resource: { buffer: forceIndexBufferStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer: cellStateStorage }
@@ -171,6 +172,23 @@ window.onload =  async  function () {
           resource: { buffer: massAssignBufferStorage }
         }],
       });
+
+      forceIndexBindGroups =  
+      device.createBindGroup({
+        label: "Force Index",
+        layout: bindGroupLayout, // Updated Line
+        entries: [{
+          binding: 0,
+          resource: { buffer: uniformBuffer }
+        }, {
+          binding: 1,
+          resource: { buffer: massAssignBufferStorage }
+        }, {
+          binding: 2, // New Entry
+          resource: { buffer: forceIndexBufferStorage }
+        }],
+      });
+
 
 
     const UPDATE_INTERVAL = 1; // 
