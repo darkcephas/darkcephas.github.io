@@ -66,8 +66,8 @@ function setup_render_particles(pipelineLayout) {
           let y_pixel = u32(input.vert_pos.y);
 
           let star_count = f32(renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel]);
-          return vec4f(star_count/30.0,star_count/10.0,star_count/3.0,1) ;
-
+   
+          return vec4f(star_count/10.0,star_count/16.0,star_count/2.0 ,1) ;
         }
       `
     });
@@ -143,7 +143,7 @@ function setup_render_particles(pipelineLayout) {
           {
             misaligned_amount =(1+mass_assign_data.z-mass_assign_data.y)-mass_assign_data.x;
           }
-          return vec4f(f32(mass_assign_data.x)/50.0, 0, 0 ,1);
+          return vec4f(f32(misaligned_amount)/50.0, 0, 0 ,1);
 
         }
       `
@@ -202,7 +202,7 @@ function draw_particles(encoder, step)
       pass.setPipeline(massRenderPipeline);
       pass.setBindGroup(0, massGraphicsBindGroup); // Updated!
       pass.setVertexBuffer(0, vertexBuffer);
-      //pass.draw(vertices.length / 2);
+      pass.draw(vertices.length / 2);
       // End the render pass and submit the command buffer
       pass.end();
 }
