@@ -66,7 +66,7 @@ function setup_compute_particles(pipelineLayout) {
 
         
         @group(0) @binding(1) var<storage> cellStateIn: array<Particle>;
-        @group(0) @binding(2) var<storage, read_write> renderBufferOut: array<vec4f>;
+        @group(0) @binding(2) var<storage, read_write> renderBufferOut: array<atomic<u32>>;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
@@ -77,9 +77,8 @@ function setup_compute_particles(pipelineLayout) {
           // my pos will be -1,1 viewport in normalized
           var pixel_loc = ((my_pos+1)*0.5*canvas_size);
           var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
-          let linear_y  = f32(cellStateIn[global_idx.x].id.y)/128.0;
-          let linear_x  = f32(cellStateIn[global_idx.x].id.x)/128.0;
-          renderBufferOut[pixel_index]= vec4( 1-linear_y,linear_y,linear_x,1);
+       
+          atomicAdd(&renderBufferOut[pixel_index],1);
         }
       `
     }); 
@@ -268,7 +267,7 @@ function setup_compute_particles(pipelineLayout) {
     renderBufferStorage = 
       device.createBuffer({
         label: "render buffer A",
-        size: 4 * 4 * canvas_width* canvas_height,
+        size: 4 * canvas_width* canvas_height,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
@@ -410,7 +409,7 @@ function setup_compute_particles(pipelineLayout) {
 function update_compute_particles(encoder,bindGroups, step)
 {
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 1000; i++) {
   {
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(sortPipeline);

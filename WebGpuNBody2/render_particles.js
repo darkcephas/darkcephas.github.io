@@ -51,7 +51,7 @@ function setup_render_particles(pipelineLayout) {
 
 
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
-        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4f>;
+        @group(0) @binding(1) var<storage> renderBufferIn: array<u32>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
           var output: VertexOutput;
@@ -65,8 +65,8 @@ function setup_render_particles(pipelineLayout) {
           let x_pixel = u32(input.vert_pos.x);
           let y_pixel = u32(input.vert_pos.y);
 
-
-          return renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel];
+          let star_count = f32(renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel]);
+          return vec4f(star_count/30.0,star_count/10.0,star_count/3.0,1) ;
 
         }
       `
