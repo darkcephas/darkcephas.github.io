@@ -247,11 +247,11 @@ function setup_compute_particles(pipelineLayout) {
 
           let vec_coarse_range = vec2i( ${COARSE_RANGE}, ${COARSE_RANGE});
           let coarse_min = max(coarse_id - vec_coarse_range, vec2i(0,0));
-          let coarse_max = min(coarse_id + vec_coarse_range, vec2i(128,128));
+          let coarse_max = min(coarse_id + vec_coarse_range, vec2i(127,127));
 
-          for(var i = coarse_min.x; i < coarse_max.x ; i++)
+          for(var i = coarse_min.x; i <= coarse_max.x ; i++)
           {
-            for(var j = coarse_min.y; j < coarse_max.y ; j++)
+            for(var j = coarse_min.y; j <= coarse_max.y ; j++)
             {
                let massSample = mass_assign[i+j*128];
                 if(true){

@@ -117,7 +117,7 @@ window.onload =  async  function () {
           resource: { buffer: uniformBuffer }
         }, {
           binding: 1,
-          resource: { buffer: forceIndexBufferStorage }
+          resource: { buffer: massAssignBufferStorage }
         }, {
           binding: 2, // New Entry
           resource: { buffer:  cellStateStorage}
