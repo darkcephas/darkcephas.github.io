@@ -1,8 +1,8 @@
 var simulationShaderModule
 const WORKGROUP_SIZE = 256;
-const SOFT_SCALE =  0.001;
+const SOFT_SCALE =  0.0003;
 const COARSE_RANGE = 2;
-const DELTA_T = 0.000001;
+const DELTA_T = 0.0000003;
 var simulationPipeline;
 var cellStateStorage;
 var renderBufferStorage;
@@ -76,6 +76,11 @@ function setup_compute_particles(pipelineLayout) {
         fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
         @builtin(num_workgroups) num_work:vec3u) {
           
+          if(cellStateIn[global_idx.x].vel.x == 1000000.0)
+          {
+             return;
+          }
+
           // Determine how many active neighbors this cell has.
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
           // my pos will be -1,1 viewport in normalized
@@ -252,6 +257,11 @@ function setup_compute_particles(pipelineLayout) {
         @builtin(num_workgroups) num_work:vec3u) {
           
           let partIdx = global_idx.x;
+          if( particleArray[partIdx].vel.x== 1000000.0)
+          {
+            return;
+          }
+
           // Determine how many active neighbors this cell has.
           var my_pos = particleArray[partIdx].pos;
           var coarse_id = vec2i(particleArray[partIdx].id);
@@ -268,18 +278,16 @@ function setup_compute_particles(pipelineLayout) {
             for(var j = coarse_min.y; j <= coarse_max.y ; j++)
             {
                let massSample = mass_assign[i+j*128];
-                if(true){
-                  for(var k = u32(massSample.x); k <=u32(massSample.y) ; k++)
-                  {
-                    if(k != partIdx){
-                      let vector_diff = my_pos - particleArray[k].pos;
-                      let as_float_vecf = vec2f(vector_diff)/ f32(256*256*256*64);
-                      let soft_scale = ${SOFT_SCALE};
-                      var diff_length = length(as_float_vecf)+ soft_scale ;
-                      total_force += - (as_float_vecf) / (diff_length*diff_length*diff_length);
-                    }
+                for(var k = u32(massSample.x); k <=u32(massSample.y) ; k++)
+                {
+                  if(k != partIdx){
+                    let vector_diff = my_pos - particleArray[k].pos;
+                    let as_float_vecf = vec2f(vector_diff)/ f32(256*256*256*64);
+                    let soft_scale = ${SOFT_SCALE};
+                    var diff_length = length(as_float_vecf)+ soft_scale ;
+                    total_force += - (as_float_vecf) / (diff_length*diff_length*diff_length);
                   }
-                }           
+                }      
             }
           }
 
@@ -290,8 +298,16 @@ function setup_compute_particles(pipelineLayout) {
           particleArray[partIdx].vel = particleArray[partIdx].vel + total_force*delta_t* force_mult;
 
           // update the coarse grained location for next pass
-          particleArray[partIdx].id = vec2u(((particleArray[partIdx].pos + i32(256*256*256*63))
-                           /i32(256*256*256)));
+          particleArray[partIdx].id = vec2u(((particleArray[partIdx].pos + i32(256*256*256*63)) /i32(256*256*256)));
+           
+          if(particleArray[partIdx].pos.x <=  -i32(256*256*256*62) ||
+            particleArray[partIdx].pos.x >=  i32(256*256*256*63) ||
+            particleArray[partIdx].pos.y <=  -i32(256*256*256*62) ||
+            particleArray[partIdx].pos.y >=  i32(256*256*256*63))
+          {
+            particleArray[partIdx].vel = vec2f(1000000.0,1000000.0);
+          }
+
         }
       `
     });  
@@ -548,7 +564,7 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.end();
   }
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 30; i++) {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
     computePass.setBindGroup(0, simulationBindGroups);
