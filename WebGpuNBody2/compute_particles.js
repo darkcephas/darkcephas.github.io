@@ -80,10 +80,24 @@ function setup_compute_particles(pipelineLayout) {
           var my_pos = vec2f(cellStateIn[global_idx.x].pos) /  f32(256*256*256*64);
           // my pos will be -1,1 viewport in normalized
           var pixel_loc = ((my_pos+1)*0.5*canvas_size);
-
+          var pixel_frac = fract(pixel_loc);
+          var pixel_frac_m1 = vec2f(1,1) - pixel_frac;
+          let int_mult = 256.0;
           {
-          var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
-          atomicAdd(&renderBufferOut[pixel_index],1);
+            var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y) * u32(canvas_size.x);
+            atomicAdd(&renderBufferOut[pixel_index], u32(pixel_frac_m1.x *pixel_frac_m1.y *int_mult));
+          }
+          {
+            var pixel_index = u32( pixel_loc.x+1.0)+  u32( pixel_loc.y) * u32(canvas_size.x);
+            atomicAdd(&renderBufferOut[pixel_index], u32(pixel_frac.x *pixel_frac_m1.y *int_mult));
+          }
+          {
+            var pixel_index = u32( pixel_loc.x)+  u32( pixel_loc.y+1.0) * u32(canvas_size.x);
+            atomicAdd(&renderBufferOut[pixel_index], u32(pixel_frac_m1.x *pixel_frac.y *int_mult));
+          }
+          {
+              var pixel_index = u32( pixel_loc.x+1.0)+  u32( pixel_loc.y+1.0) * u32(canvas_size.x);
+              atomicAdd(&renderBufferOut[pixel_index], u32(pixel_frac.x *pixel_frac.y *int_mult));
           }
         }
       `
@@ -271,7 +285,7 @@ function setup_compute_particles(pipelineLayout) {
 
           let delta_t = ${DELTA_T};
           let delta_v_with_t_as_int = vec2i( particleArray[partIdx].vel*delta_t * f32(256*256*256*64));
-          let force_mult = 0.05;
+          let force_mult = 0.03;
           particleArray[partIdx].pos = particleArray[partIdx].pos + delta_v_with_t_as_int;
           particleArray[partIdx].vel = particleArray[partIdx].vel + total_force*delta_t* force_mult;
 
@@ -534,7 +548,7 @@ function update_compute_particles(encoder,bindGroups, step)
     computePass.end();
   }
 
-  for (let i = 0; i < 1; i++) {
+  for (let i = 0; i < 5; i++) {
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(simulationPipeline);
     computePass.setBindGroup(0, simulationBindGroups);

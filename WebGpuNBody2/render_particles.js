@@ -65,7 +65,7 @@ function setup_render_particles(pipelineLayout) {
           let x_pixel = u32(input.vert_pos.x);
           let y_pixel = u32(input.vert_pos.y);
 
-          let star_count = f32(renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel]);
+          let star_count = f32(renderBufferIn[x_pixel + u32(canvas_size.x)* y_pixel])/256.0;
    
           return vec4f(star_count/10.0,star_count/16.0,star_count/2.0 ,1) ;
 
