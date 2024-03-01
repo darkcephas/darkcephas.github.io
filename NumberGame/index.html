@@ -1,0 +1,170 @@
+<html>
+<body>
+<style>
+
+button {
+      font-size: 500%;
+}
+</style>
+
+<h1>
+  <button type="button" id="correct_answer" onclick="playWord();">Word</button>
+</h1>
+<button type="button" id="choice_0" onclick="clickChoice(0);">Press</button>
+<button type="button" id="choice_1" onclick="clickChoice(1);">Press</button>
+<button type="button" id="choice_2" onclick="clickChoice(2);">Press</button>
+<button type="button" id="choice_3" onclick="clickChoice(3);">Press</button>
+<button type="button" id="choice_4" onclick="clickChoice(4);">Press</button>
+<h1>
+  <p id="points_id"> points</p>
+</h1>
+
+</body>
+  <script>
+    var correct_answer = "55";
+    var question_string = "nice";
+    var game_state = "uninit";
+    var wait_till = 30;
+    var max_allowed_length = 4;
+    var curr_points = 0;
+    requestAnimationFrame(MainLoop);
+    
+    function ShowPoints()
+    {
+       gen_star_string = "";
+       for (let i = 0; i < Math.floor(curr_points/10); i++) {
+           gen_star_string = gen_star_string +( "🌟");
+       }
+        for (let i = 0; i < curr_points%10; i++) {
+         gen_star_string = gen_star_string + ( "⭐");
+        }
+        document.getElementById("points_id").innerHTML = gen_star_string;
+    }
+    
+    function MainLoop(timestamp)
+    {
+        if(wait_till < 0)
+        {
+            console.log(game_state);
+            if(game_state=="init")
+            {
+              resetEquation(); 
+              game_state = "input"
+            }
+            else if(game_state=="next")
+            {
+              resetEquation();
+                game_state = "input";
+            }
+        }
+        else
+        {
+            wait_till--;
+               console.log("waiting");
+        }
+        requestAnimationFrame(MainLoop);
+    }
+    
+ 
+
+    function sayThis(msg)
+    {
+        var speech_say = new SpeechSynthesisUtterance();
+        speech_say.rate = 0.8
+        speech_say.text = msg;
+        window.speechSynthesis.speak(speech_say);
+    }
+    
+    function sayRandCongrats()
+    {
+        congrats_phrase = ["Good job!", "Nice one", "You are the best", "you are doing well"];
+        phrase_to_say = congrats_phrase[Math.floor(Math.random()*congrats_phrase.length)];
+        sayThis(phrase_to_say);
+    }
+    
+    function playWord()
+    {
+        if(game_state == "uninit")
+        {
+            sayThis("Click the button for the word.");
+            wait_till = 3*60;
+            game_state= "init"
+        }
+        else
+        {
+            sayThis(question_string);
+        }
+    }
+    
+    function shuffleArray(array) {
+        for (var i = array.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
+        }
+    }
+    function resetEquation()
+    {
+        ShowPoints();
+       max_allowed_length =  (curr_points > 20) ? 5:4;
+       max_allowed_length =  (curr_points > 50) ? 6:max_allowed_length;
+       max_allowed_length =  (curr_points > 100) ? 7:max_allowed_length;
+     
+      let x = Math.floor(Math.random()*10);
+      let y = Math.floor(Math.random()*10);
+      
+      correct_answer = ( x + y).toString();
+  
+      question_string = x.toString() + " + " + y.toString();
+      document.getElementById("correct_answer" ).textContent = question_string;
+      word_options = [correct_answer];
+      rand_list = []
+      for (let i = -5; i <= 5; i++) {
+        let sum = i +  x + y;
+        if(sum >=0 ){
+          rand_list.push((sum).toString());
+        }
+      }
+      
+      for (let i = 0; i < 4; i++) {
+        word_options.push( rand_list[Math.floor(Math.random()*rand_list.length)]);
+      }
+      shuffleArray(word_options);
+      for (let i = 0; i < 5; i++) {
+          document.getElementById("choice_" + i ).textContent= word_options[i];
+          document.getElementById("choice_" + i ).style.color = "black";
+      }
+      sayThis(question_string);
+    }
+    
+    function clickChoice( index_choice) {  
+        ShowPoints();
+
+      if(game_state=="next")
+      {
+        // waiting for next number
+        return;
+      }
+
+      if(document.getElementById("choice_" + index_choice ).textContent == correct_answer)
+      {
+        game_state="next";
+    
+        sayRandCongrats();
+        wait_till = 2*60;
+        document.getElementById("choice_" + index_choice ).style.color = "green";
+        curr_points++;
+      }
+      else
+      {
+          sayThis("nope");
+           document.getElementById("choice_" + index_choice ).style.color = "red";
+          curr_points--;
+          curr_points = curr_points > 0 ? curr_points: 0;
+      }
+      
+    }
+    
+</script>
+</html>
