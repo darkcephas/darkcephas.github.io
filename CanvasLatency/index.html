@@ -1,0 +1,79 @@
+
+<html>
+<head>
+  <title>60 fps Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+</head>
+<body>
+  <div class="slidecontainer">
+  Forward delta
+  <input type="range" min="0.0" max="1.0" value="0" class="slider" step="0.01" id="myRange">
+
+</div>
+  <canvas id="canvas1"  width="800" height="600" style="border:3px solid" >Failed to load canvas.</canvas>
+
+</body>
+  
+   <script>
+    document.addEventListener("mousedown", onDocumentMouseMove, false);
+    document.addEventListener("touchstart", onDocumentMouseMove, false);
+
+    var mouse_down_last_frame = false;
+    function onDocumentMouseMove(e) {  
+		e.preventDefault();
+    mouse_down_last_frame = true;
+    }
+
+   requestAnimationFrame(drawAnimation);
+   var canvas = document.getElementById("canvas1");
+      var context = canvas.getContext("2d");
+  var frame_count = 0;
+  var frame_input = 0;
+  var delta_record = 0;
+  function drawAnimation () {
+
+      if(mouse_down_last_frame){
+        frame_input = frame_count;
+        mouse_down_last_frame = false;
+      }
+      frame_count++;
+  
+      
+      var advanced = 0.0;
+      if(frame_count== 63)
+      {
+        advanced = Number(document.getElementById("myRange").value);        
+      }
+      var frame_do_it = false;
+      if(frame_count %60 == 0)
+      {
+        delta_record = frame_count - frame_input;
+        if(delta_record>30){
+          delta_record = (frame_count - frame_input)-60;
+        }
+        console.log(delta_record);
+        frame_do_it = true;
+      }
+
+     context.fillStyle = 'white';
+      context.fillRect(0,0,canvas.width,canvas.height);
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = 70;
+      context.beginPath();
+
+       context.fillStyle = frame_do_it ? 'black': 'white';
+      context.beginPath();
+      context.arc(centerX,  centerY ,75, 0, 2 * Math.PI);
+      context.fill();
+
+      context.fillStyle = 'black';
+      context.font = "48px serif";
+      context.fillText( (delta_record).toString(), 10, 50);
+
+      requestAnimationFrame(drawAnimation);
+   
+  }
+
+  </script>
+</html>
