@@ -8,8 +8,10 @@
   <div class="slidecontainer">
   Forward delta
   <input type="range" min="0.0" max="1.0" value="0" class="slider" step="0.01" id="myRange">
-
+  <input type="checkbox" id="scales" name="scales"  />
+  <label for="scales">Random Latency</label>
 </div>
+
   <canvas id="canvas1"  width="800" height="600" style="border:3px solid" >Failed to load canvas.</canvas>
 
 </body>
@@ -62,15 +64,21 @@
       const radius = 70;
       context.beginPath();
 
+      if(Math.random() > 0.2 && document.getElementById("scales").checked){
+        frame_do_it = false;
+      }
+
        context.fillStyle = frame_do_it ? 'black': 'white';
       context.beginPath();
       context.arc(centerX,  centerY ,75, 0, 2 * Math.PI);
       context.fill();
+      
 
       context.fillStyle = 'black';
       context.font = "48px serif";
-      context.fillText( (delta_record).toString(), 10, 50);
-
+      if(Math.abs(delta_record) < 120 ){
+        context.fillText( (delta_record).toString(), 10, 50);
+      }
       requestAnimationFrame(drawAnimation);
    
   }
