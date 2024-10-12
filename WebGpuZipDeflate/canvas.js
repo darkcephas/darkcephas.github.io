@@ -1,25 +1,11 @@
+"use strict";
+
 var device;
-var canvasformat;
 var context;
-
-var bindGroupLayout;
-var uniformBuffer;
-var simulationBindGroups;
-var massAssignBindGroups;
-var starGraphicsBindGroup;
-var massGraphicsBindGroup;
-var forceIndexBindGroups;
-
 var forceIndexShaderModule
 const WORKGROUP_SIZE = 1;
-
-var simulationPipeline;
-var cellStateStorage;
-var renderBufferStorage;
-var bindGroupUniformOffset;
-var massAssignBufferStorage;
-
-
+var readOffset = 0;
+var inputFileResult = null;
 
 window.onload = async function () {
   const canvas = document.querySelector("canvas");
@@ -37,7 +23,7 @@ window.onload = async function () {
   }
   device = await adapter.requestDevice();
   context = canvas.getContext("webgpu");
-  canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
     device: device,
     format: canvasFormat,
@@ -53,10 +39,9 @@ window.onload = async function () {
       const file = new FileReader(f.files[0]);
       file.addEventListener('load', () => {
         // File has loaded
-        const json = JSON.parse(file.result);
-        console.log(json);
+        inputFileResult  = new Uint8Array( file.result);
       });
-      file.readAsText(f.files[0]);
+      file.readAsArrayBuffer(f.files[0]);
     });
     f.click();
   });
@@ -69,12 +54,67 @@ window.onload = async function () {
 }
 
 
+/*
+struct LocalFileHeader
+{
+    uint16_t header_signature[2];
+    uint16_t version;
+    uint16_t bit_flag;
+    uint16_t compression_method;
+    uint16_t last_modified_time;
+    uint16_t last_modified_date;
+    uint16_t crc[2];
+    uint16_t compressed_size[2];
+    uint16_t uncompressed_size[2];
+    uint16_t file_name_num_bytes;
+    uint16_t file_extra_num_bytes;
+    // Additional dynamic length fields removed;
+};
+*/
+
+function read8(){
+  return inputFileResult[readOffset++];
+}
+
+function read16(){
+  let res = inputFileResult[readOffset++];
+  res = res | inputFileResult[readOffset++]<< 8;
+  return res;
+}
+
+function read32(){
+  let res = inputFileResult[readOffset++];
+  res = res | inputFileResult[readOffset++]<< 8;
+  res = res | inputFileResult[readOffset++]<< 16;
+  res = res | inputFileResult[readOffset++]<< 24;
+  return res;
+}
+
+function RoundTo4(val)
+{
+  return Math.floor((val + 3)/4)*4;// this could just be a mask
+}
+
+
 
 async function RunDecompression()  {
+  let header_signature = read32();
+  let version = read16();
+  let bit_flag =  read16();
+  let compression_method =  read16();
+  let last_modified_time = read16();
+  let last_modified_date =  read16();
+  let crc_0 =  read32();
+  let compressed_size =  read32();
+  let uncompressed_size =  read32();
+  let file_name_num_bytes =  read16();
+  let file_extra_num_bytes = read16();
 
-
+  let compressed_size_rounded = RoundTo4(compressed_size);
+  let uncompressed_size_rounded =  RoundTo4(uncompressed_size);
+  console.log(inputFileResult);
   // Create the bind group layout and pipeline layout.
-  bindGroupLayout = device.createBindGroupLayout({
+  let bindGroupLayout = device.createBindGroupLayout({
     label: "Cell Bind Group Layout",
     entries: [{
       binding: 0,
@@ -101,16 +141,22 @@ async function RunDecompression()  {
   forceIndexShaderModule = device.createShaderModule({
     label: "Force Index shader",
     code: `
+
+          struct CommonData {
+                outlen:  u32,       /* available space at out */
+               inlen: u32,    /* available input at in */
+          };
         
           @group(0) @binding(0) var<storage> in: array<u32>;
             @group(0) @binding(1) var<storage,read_write> out: array<u32>;
-           @group(0) @binding(2) var<uniform> test_data: u32;
+           @group(0) @binding(2) var<uniform> ws: CommonData;
   
           @compute @workgroup_size(${WORKGROUP_SIZE})
           fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
           @builtin(num_workgroups) num_work:vec3u) {
-     
-            out[0]= in[0] + 666;
+            for(var i = 0u ;i < ws.inlen;i++){
+             out[i]= in[i];
+            }
           }
         `
   });
@@ -119,7 +165,7 @@ async function RunDecompression()  {
 
 
   // Create a compute pipeline that updates the game state.
-  renderBufferPipeline = device.createComputePipeline({
+  let renderBufferPipeline = device.createComputePipeline({
     label: "Render pipeline",
     layout: pipelineLayout,
     compute: {
@@ -131,8 +177,8 @@ async function RunDecompression()  {
 
 
   // Create a uniform buffer that describes the grid.
-  const uniformArrayInit = new Uint32Array([123, 345]);
-  uniformBuffer = device.createBuffer({
+  const uniformArrayInit = new Uint32Array([compressed_size, uncompressed_size]);
+  let uniformBuffer = device.createBuffer({
     label: "Grid Uniforms",
     size: uniformArrayInit.byteLength,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -141,33 +187,31 @@ async function RunDecompression()  {
   // Create an array representing the active state of each cell.
 
 
- 
-
 
   // Create an array representing the active state of each cell.
-  const initInputDataArray = new Uint32Array(100);
-  var as_int = new Int32Array(initInputDataArray.buffer);
-  initInputDataArray[0] = 13;
+  //const initInputDataArray = new Uint32Array(100);
+  //var as_int = new Int32Array(initInputDataArray.buffer);
+  //initInputDataArray[0] = 13;
   // Create two storage buffers to hold the cell state.
-  inputBufferStorage =
+  let inputBufferStorage =
     device.createBuffer({
       label: "Init input array",
-      size: initInputDataArray.byteLength,
+      size: compressed_size_rounded, // this isnt quite right...
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
   // fill buffer with the init data.
-  device.queue.writeBuffer(inputBufferStorage, 0, initInputDataArray);
+  device.queue.writeBuffer(inputBufferStorage, 0, inputFileResult , readOffset, compressed_size_rounded);
 
 
-  outputBufferStorage =
+  let outputBufferStorage =
     device.createBuffer({
       label: "Output result",
-      size:  initInputDataArray.byteLength,
+      size:  uncompressed_size_rounded,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
 
-    commonBindGroup =
+   let commonBindGroup =
     device.createBindGroup({
       label: "Compute renderer bind group A",
       layout: bindGroupLayout, // Updated Line
@@ -185,7 +229,7 @@ async function RunDecompression()  {
 
 
   const stagingBuffer = device.createBuffer({
-    size: 666,
+    size: uncompressed_size_rounded,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
   const encoder = device.createCommandEncoder();
@@ -199,7 +243,7 @@ async function RunDecompression()  {
     0, // Source offset
     stagingBuffer,
     0, // Destination offset
-    4
+    uncompressed_size_rounded
   );
   const commandBuffer = encoder.finish();
   
@@ -208,12 +252,11 @@ async function RunDecompression()  {
    await stagingBuffer.mapAsync(
     GPUMapMode.READ,
     0, // Offset
-    4 // Length
+    uncompressed_size_rounded // Length
    );
-  const copyArrayBuffer =
-    stagingBuffer.getMappedRange(0, 4);
+  const copyArrayBuffer = stagingBuffer.getMappedRange();
   const data = copyArrayBuffer.slice();
   stagingBuffer.unmap();
-  console.log(new Uint32Array(data));
+  console.log(new Uint8Array(data));
 }
 
