@@ -39,8 +39,9 @@ var<workgroup>  distsym:array<i32, MAXDCODES>;
 
 
 @group(0) @binding(0) var<storage> in: array<u32>;
-  @group(0) @binding(1) var<storage,read_write> out: array<u32>;
- @group(0) @binding(2) var<uniform> unidata: CommonData;
+@group(0) @binding(1) var<storage,read_write> out: array<u32>;
+@group(0) @binding(2) var<uniform> unidata: CommonData;
+@group(0) @binding(3) var<storage,read_write> debug: array<u32>;
 
 var<workgroup> ws : CommonData;
 
@@ -133,7 +134,6 @@ fn  stored() -> i32
         len--;
         var val:u32 = ReadByteIn();
         WriteByteOut(val);
-      
     }
 
     /* done with a valid stored block */
@@ -581,15 +581,18 @@ fn puff( dictlen:u32,         // length of custom dictionary
         last = bits(1);         /* one if last block */
         var type_now:u32 = bits(2);         /* block type_now 0..3 */
         if (type_now == 0) {
+         debug[3]++;
             stored();
         }
         else
         {
             if (type_now == 1) {
+                debug[1]++;
                 fixed();
                 ts.err |= codes();
             }
             else if (type_now == 2) {
+                debug[2]++;
                 dynamic();
                 ts.err |= codes();
 
@@ -621,10 +624,7 @@ fn puff( dictlen:u32,         // length of custom dictionary
 @compute @workgroup_size(${WORKGROUP_SIZE})
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
 @builtin(num_workgroups) num_work:vec3u) {
-
   puff(0,unidata.outlen, unidata.inlen);
-  //for(var i = 0u ;i < ws.inlen;i++){
-  // out[i]= in[i];
-  //}
+  debug[0] = 777;
 }
 `;

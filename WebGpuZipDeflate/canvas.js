@@ -6,12 +6,50 @@ var forceIndexShaderModule
 var readOffset = 0;
 var inputFileResult = null;
 
+const kDebugArraySize = 1024;
 
-async function  loadDemoFromDisk() 
+//https://stackoverflow.com/questions/18638900/javascript-crc32
+var crc32 = (function()
 {
+    var table = new Uint32Array(256);
+
+    // Pre-generate crc32 polynomial lookup table
+    // http://wiki.osdev.org/CRC32#Building_the_Lookup_Table
+    // ... Actually use Alex's because it generates the correct bit order
+    //     so no need for the reversal function
+    for(var i=256; i--;)
+    {
+        var tmp = i;
+
+        for(var k=8; k--;)
+        {
+            tmp = tmp & 1 ? 3988292384 ^ tmp >>> 1 : tmp >>> 1;
+        }
+
+        table[i] = tmp;
+    }
+
+    // crc32b
+    // Example input        : [97, 98, 99, 100, 101] (Uint8Array)
+    // Example output       : 2240272485 (Uint32)
+    return function( data )
+    {
+        var crc = -1; // Begin with all bits set ( 0xffffffff )
+
+        for(var i=0, l=data.length; i<l; i++)
+        {
+            crc = crc >>> 8 ^ table[ crc & 255 ^ data[i] ];
+        }
+
+        return (crc ^ -1) >>> 0; // Apply binary NOT
+    };
+
+})();
+
+async function loadDemoFromDisk() {
   const f = await fetch('demo.json');
   const bytes = await f.bytes();
-  inputFileResult  = new Uint8Array(bytes);
+  inputFileResult = new Uint8Array(bytes);
 }
 
 
@@ -47,7 +85,7 @@ window.onload = async function () {
       const file = new FileReader(f.files[0]);
       file.addEventListener('load', () => {
         // File has loaded
-        inputFileResult  = new Uint8Array( file.result);
+        inputFileResult = new Uint8Array(file.result);
       });
       file.readAsArrayBuffer(f.files[0]);
     });
@@ -86,47 +124,50 @@ struct LocalFileHeader
 };
 */
 
-function read8(){
+function read8() {
   return inputFileResult[readOffset++];
 }
 
-function read16(){
+function read16() {
   let res = inputFileResult[readOffset++];
-  res = res | inputFileResult[readOffset++]<< 8;
+  res = res | inputFileResult[readOffset++] << 8;
   return res;
 }
 
-function read32(){
+function read32() {
   let res = inputFileResult[readOffset++];
-  res = res | inputFileResult[readOffset++]<< 8;
-  res = res | inputFileResult[readOffset++]<< 16;
-  res = res | inputFileResult[readOffset++]<< 24;
+  res = res | inputFileResult[readOffset++] << 8;
+  res = res | inputFileResult[readOffset++] << 16;
+  res = res | inputFileResult[readOffset++] << 24;
   return res;
 }
 
-function RoundTo4(val)
-{
-  return Math.floor((val + 3)/4)*4;// this could just be a mask
+function RoundTo4(val) {
+  return Math.floor((val + 3) / 4) * 4;// this could just be a mask
 }
 
 
 
-async function RunDecompression()  {
+async function RunDecompression() {
   let header_signature = read32();
   let version = read16();
-  let bit_flag =  read16();
-  let compression_method =  read16();
+  let bit_flag = read16();
+  let compression_method = read16();
   let last_modified_time = read16();
-  let last_modified_date =  read16();
-  let crc_0 =  read32();
-  let compressed_size =  read32();
-  let uncompressed_size =  read32();
-  let file_name_num_bytes =  read16();
+  let last_modified_date = read16();
+  let crc_file = read32();
+  let compressed_size = read32();
+  let uncompressed_size = read32();
+  let file_name_num_bytes = read16();
   let file_extra_num_bytes = read16();
 
   let compressed_size_rounded = RoundTo4(compressed_size);
-  let uncompressed_size_rounded =  RoundTo4(uncompressed_size);
+  let uncompressed_size_rounded = RoundTo4(uncompressed_size);
 
+  if(compression_method == 0){
+    console.log("not compressed");
+    return;
+  }
   // dynamic sided parts of header
   readOffset += file_name_num_bytes;
   readOffset += file_extra_num_bytes;
@@ -147,6 +188,10 @@ async function RunDecompression()  {
       binding: 2,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "uniform" } // additional data
+    }, {
+      binding: 3,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" } // debugging
     }]
   });
 
@@ -178,7 +223,7 @@ async function RunDecompression()  {
 
 
   // Create a uniform buffer that describes the grid.
-  const uniformArrayInit = new Uint32Array([compressed_size, uncompressed_size]);
+  const uniformArrayInit = new Uint32Array([uncompressed_size, compressed_size]);
   let uniformBuffer = device.createBuffer({
     label: "Grid Uniforms",
     size: uniformArrayInit.byteLength,
@@ -201,18 +246,26 @@ async function RunDecompression()  {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
   // fill buffer with the init data.
-  device.queue.writeBuffer(inputBufferStorage, 0, inputFileResult , readOffset, compressed_size_rounded);
+  device.queue.writeBuffer(inputBufferStorage, 0, inputFileResult, readOffset, compressed_size_rounded);
 
 
   let outputBufferStorage =
     device.createBuffer({
       label: "Output result",
-      size:  uncompressed_size_rounded,
+      size: uncompressed_size_rounded,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
 
-   let commonBindGroup =
+    
+  let debuggingBufferStorage =
+  device.createBuffer({
+    label: "debugging storage result",
+    size: kDebugArraySize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
+
+  let commonBindGroup =
     device.createBindGroup({
       label: "Compute renderer bind group A",
       layout: bindGroupLayout, // Updated Line
@@ -225,20 +278,24 @@ async function RunDecompression()  {
       }, {
         binding: 2, //  uniforms
         resource: { buffer: uniformBuffer }
+      }, {
+        binding: 3,
+        resource: { buffer: debuggingBufferStorage }
       }],
     });
 
 
-  const stagingBuffer = device.createBuffer({
-    size: uncompressed_size_rounded,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  });
+
   const encoder = device.createCommandEncoder();
   const computePass = encoder.beginComputePass();
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
   computePass.dispatchWorkgroups(1);
   computePass.end();
+  const stagingBuffer = device.createBuffer({
+    size: uncompressed_size_rounded,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
   encoder.copyBufferToBuffer(
     outputBufferStorage,
     0, // Source offset
@@ -246,18 +303,53 @@ async function RunDecompression()  {
     0, // Destination offset
     uncompressed_size_rounded
   );
+
+  const stagingBufferDebug = device.createBuffer({
+    size: kDebugArraySize,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+  encoder.copyBufferToBuffer(
+    debuggingBufferStorage,
+    0, // Source offset
+    stagingBufferDebug,
+    0, // Destination offset
+    kDebugArraySize
+  );
+
   const commandBuffer = encoder.finish();
-  
+
   device.queue.submit([commandBuffer]);
 
-   await stagingBuffer.mapAsync(
+  // Get result ouptut
+  await stagingBuffer.mapAsync(
     GPUMapMode.READ,
     0, // Offset
     uncompressed_size_rounded // Length
-   );
+  );
   const copyArrayBuffer = stagingBuffer.getMappedRange();
   const data = copyArrayBuffer.slice();
   stagingBuffer.unmap();
-  console.log(new Uint8Array(data));
+
+  var inflated_bytes = new Uint8Array(data,0, uncompressed_size);
+  var crc_test = crc32(inflated_bytes);
+  console.log(crc_test);
+  console.log(crc_file);
+  console.log(inflated_bytes);
+  var string = new TextDecoder().decode(inflated_bytes);
+  console.log(string);
+
+
+  {
+    await stagingBufferDebug.mapAsync(
+      GPUMapMode.READ,
+      0, // Offset
+      kDebugArraySize // Length
+    );
+    const copyArrayBuffer = stagingBufferDebug.getMappedRange();
+    const data = copyArrayBuffer.slice();
+    stagingBufferDebug.unmap();
+    console.log(new Uint32Array(data));
+  }
+  console.log("done");
 }
 
