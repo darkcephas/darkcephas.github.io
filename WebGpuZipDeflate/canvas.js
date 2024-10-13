@@ -6,6 +6,15 @@ var forceIndexShaderModule
 var readOffset = 0;
 var inputFileResult = null;
 
+
+async function  loadDemoFromDisk() 
+{
+  const f = await fetch('demo.json');
+  const bytes = await f.bytes();
+  inputFileResult  = new Uint8Array(bytes);
+}
+
+
 window.onload = async function () {
   const canvas = document.querySelector("canvas");
   if (!canvas) {
@@ -48,8 +57,14 @@ window.onload = async function () {
   const decompress = document.querySelector('#decompress');
   decompress.addEventListener('click', RunDecompression);
 
-  const savedata = document.querySelector('#savedata');
-  savedata.addEventListener('click', saveDataToDisk);
+  const loaddemo = document.querySelector('#loaddemo');
+  loaddemo.addEventListener('click', loadDemoFromDisk);
+
+  //const savedata = document.querySelector('#savedata');
+  //savedata.addEventListener('click', saveDataToDisk);
+
+
+
 }
 
 
@@ -111,6 +126,11 @@ async function RunDecompression()  {
 
   let compressed_size_rounded = RoundTo4(compressed_size);
   let uncompressed_size_rounded =  RoundTo4(uncompressed_size);
+
+  // dynamic sided parts of header
+  readOffset += file_name_num_bytes;
+  readOffset += file_extra_num_bytes;
+
   console.log(inputFileResult);
   // Create the bind group layout and pipeline layout.
   let bindGroupLayout = device.createBindGroupLayout({

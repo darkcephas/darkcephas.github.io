@@ -21,6 +21,8 @@ struct ThreadState {
 var<private> ts : ThreadState;
 
 
+
+
 const MAXBITS=15 ;             /* maximum bits in a code */
 const MAXLCODES=286 ;          /* maximum number of literal/length codes */
 const MAXDCODES=30 ;           /* maximum number of distance codes */
@@ -38,8 +40,9 @@ var<workgroup>  distsym:array<i32, MAXDCODES>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
   @group(0) @binding(1) var<storage,read_write> out: array<u32>;
- @group(0) @binding(2) var<uniform> ws: CommonData;
+ @group(0) @binding(2) var<uniform> unidata: CommonData;
 
+var<workgroup> ws : CommonData;
 
 
 fn  ReadByteIn() -> u32
@@ -127,9 +130,10 @@ fn  stored() -> i32
     }
 
     while (len !=0) {
+        len--;
         var val:u32 = ReadByteIn();
         WriteByteOut(val);
-        len--;
+      
     }
 
     /* done with a valid stored block */
@@ -159,6 +163,7 @@ fn  decode_lencode() -> i32
     next = 1;
     while (true) {
         while (left !=0) {
+            left--;
             code |= bitbuf & 1;
             bitbuf >>= 1;
             count =  lencnt[next];
@@ -174,7 +179,7 @@ fn  decode_lencode() -> i32
             first <<= 1;
             code <<= 1;
             len++;
-            left--;
+           
         }
         left = (MAXBITS + 1) - len;
         if (left == 0) {
@@ -343,12 +348,283 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
     return left;
 }
 
+const lens= array<u32,29> ( /* Size base for length codes 257..285 */
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 );
+const lext= array<u32,29> ( /* Extra bits for length codes 257..285 */
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+    3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 );
+const dists= array<u32,30> ( /* Offset base for distance codes 0..29 */
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+    8193, 12289, 16385, 24577 );
+const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+    7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+    12, 12, 13, 13 );
+
+
+
+fn  codes() -> i32
+{
+    var symbol:i32;         /* decoded symbol */
+  
+    var dist:u32;      /* distance for copy */
+
+
+    /* decode literals and length/distance pairs */
+    while(true) {
+        symbol = decode_lencode();
+        if (symbol < 0) {
+            return symbol;              /* invalid symbol */
+        }
+
+        if (symbol < 256) {             /* literal: symbol is the byte */
+            /* write out the literal */
+            if (ts.outcnt == ws.outlen) {
+                return 1;
+            }
+            WriteByteOut(u32(symbol));
+        }
+        else if (symbol > 256) {        /* length */
+            /* get and compute length */
+            symbol -= 257;
+            if (symbol >= 29) {
+                return -10;             /* invalid fixed code */
+            }
+             var len:u32;            /* length for copy */
+            len = lens[symbol] + bits(lext[symbol]);
+
+            /* get and check distance */
+            symbol = decode_distcode();
+            if (symbol < 0) {
+                return symbol;          /* invalid symbol */
+            }
+            dist = dists[symbol] + bits(dext[symbol]);
+
+            /* copy length bytes from distance bytes back */
+            if (ts.outcnt + len > ws.outlen) {
+                return 1;
+            }
+            while (len !=0) {
+                len--;
+                var val:u32 = PeekByteOut(dist);// out[ts.outcnt - dist];
+                WriteByteOut(val);
+            }
+        }
+
+         /* end of block symbol */
+        if (symbol == 256){
+          return 0;
+        }          
+    }
+
+    /* done with a valid fixed or dynamic block */
+    return 0;
+}
+    
+    
+fn fixed()
+{
+    /* build fixed huffman tables if first call (may not be thread safe) */
+    var symbol:i32;
+    /* literal/length table */
+    for (symbol = 0; symbol < 144; symbol++) {
+        lengths[symbol] = 8;
+    }
+    for (; symbol < 256; symbol++) {
+        lengths[symbol] = 9;
+    }
+    for (; symbol < 280; symbol++) {
+        lengths[symbol] = 7;
+    }
+    for (; symbol < FIXLCODES; symbol++) {
+        lengths[symbol] = 8;
+    }
+    construct_lencode(0, FIXLCODES);
+
+    /* distance table */
+    for (symbol = 0; symbol < MAXDCODES; symbol++) {
+        lengths[symbol] = 5;
+    }
+    construct_distcode(0, MAXDCODES);
+}
+
+
+const  order = array<i32,19>(     /* permutation of code length codes */
+ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 );
+
+fn dynamic()
+{           
+    var index:u32;                          /* index of lengths[] */
+    var err: i32;                            /* construct() return value */
+
+    /* get number of lengths in each table, check lengths */
+      /* number of lengths in descriptor */
+    var nlen:u32 = bits(5) + 257u;
+    var ndist:u32 = bits(5) + 1u;
+    var ncode:u32 = bits(4) + 4u;
+    if (nlen > MAXLCODES || ndist > MAXDCODES) {
+        /* bad counts */
+        err = -3; 
+        return;
+    }
+
+    /* read code length code lengths (really), missing lengths are zero */
+    for (index = 0; index < ncode; index++) {
+        lengths[order[index]] = i32(bits(3));
+    }
+    for (; index < 19; index++) {
+        lengths[order[index]] = 0;
+    }
+
+    /* build huffman table for code lengths codes (use lencode temporarily) */
+    err = construct_lencode(0, 19);
+    if (err != 0) {
+        /* require complete code set here */
+        err =  -4;
+        return;
+    }
+
+    /* read length/literal and distance code length tables */
+    index = 0;
+    while (index < nlen + ndist) {
+        var symbol:u32;             /* decoded value */
+        var len:u32;                /* last length to repeat */
+
+        symbol = u32(decode_lencode());
+        if (symbol < 0) {
+            /* invalid symbol */
+            err = i32(symbol);
+            return;    
+        }
+        if (symbol < 16) {              /* length in 0..15 */
+            lengths[index] = i32(symbol);
+            index++;
+        }
+        else {                          /* repeat instruction */
+            len = 0;                    /* assume repeating zeros */
+            if (symbol == 16) {         /* repeat last length 3..6 times */
+                if (index == 0) {
+                    err = -5;
+                    /* no last length! */
+                    return;      
+                }
+                len = u32(lengths[index - 1]);       /* last length */
+                symbol = 3u + bits(2);
+            }
+            else if (symbol == 17) {     /* repeat zero 3..10 times */
+                symbol = 3u + bits(3);
+            }
+            else {                       /* == 18, repeat zero 11..138 times */
+                symbol = 11u + bits(7);
+            }
+            if (index + symbol > nlen + ndist) {
+                /* too many lengths! */
+                err = -6;
+                return;            
+            }
+            while (symbol !=0) {            /* repeat last or zero symbol times */
+                symbol--;
+                lengths[index] = i32(len);
+                index++;
+            }
+        }
+    }
+
+    /* check for end-of-block code -- there better be one! */
+    if (lengths[256] == 0) {
+        err = -9;
+        return;
+    }
+
+    /* build huffman table for literal/length codes */
+    err = construct_lencode(0, i32(nlen));
+    if (err !=0  && (err < 0 || nlen != u32(lencnt[0] + lencnt[1]) )) {
+        /* incomplete code ok only for single length 1 code */
+        err = -7;
+        return;     
+    }
+
+    /* build huffman table for distance codes */
+    err = construct_distcode(i32(nlen),i32(ndist));
+    if (err !=0 && (err < 0 || ndist != u32(distcnt[0] + distcnt[1]) )) {
+        /* incomplete code ok only for single length 1 code */
+        err = -8;
+        return;   
+    }
+}
+
+
+fn puff( dictlen:u32,         // length of custom dictionary
+    destlen:u32,        /* amount of output space */
+    sourcelen:u32)      /* amount of input available */
+    -> i32
+{
+   
+    ts.err=0;                    /* return value */
+
+    /* initialize output state */
+    ws.outlen = destlen;                /* ignored if dest is NIL */
+    ts.outcnt = dictlen;
+
+    /* initialize input state */
+    ws.inlen = sourcelen;
+    ts.incnt = 0;
+    ts.bitbuf = 0;
+    ts.bitcnt = 0;
+
+
+    /* process blocks until last block or error */
+    var last:u32 =0;             /* block information */
+    while(true) {
+        last = bits(1);         /* one if last block */
+        var type_now:u32 = bits(2);         /* block type_now 0..3 */
+        if (type_now == 0) {
+            stored();
+        }
+        else
+        {
+            if (type_now == 1) {
+                fixed();
+                ts.err |= codes();
+            }
+            else if (type_now == 2) {
+                dynamic();
+                ts.err |= codes();
+
+            }
+            else {
+                // type_now == 3, invalid
+                ts.err = -1;
+            }
+        }
+          
+        if (ts.err != 0) {
+            break;                  /* return with error */
+        }
+
+        if(last != 0){
+          break;
+        }
+    } 
+    
+
+    /* update the lengths and return */
+    if (ts.err <= 0) {
+       // *destlen = ts.outcnt - dictlen;
+        //*sourcelen = ts.incnt;
+    }
+    return ts.err;
+}
 
 @compute @workgroup_size(${WORKGROUP_SIZE})
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
 @builtin(num_workgroups) num_work:vec3u) {
-  for(var i = 0u ;i < ws.inlen;i++){
-   out[i]= in[i];
-  }
+
+  puff(0,unidata.outlen, unidata.inlen);
+  //for(var i = 0u ;i < ws.inlen;i++){
+  // out[i]= in[i];
+  //}
 }
 `;
