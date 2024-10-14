@@ -50,10 +50,32 @@ var crc32 = (function () {
 
 })();
 
+function setFileLoaded() {
+  loadingTextElement.innerHTML = "Done. ";
+  loadingTextElement.style.color = "green";
+  decompressionTextElement.innerHTML = "Waiting for decompress";
+  decompressionTextElement.style.color = "black";
+}
+
+function setFileDecompressed(passed_string) {
+  decompressionTextElement.innerHTML = passed_string;
+  decompressionTextElement.style.color = "green";
+  savedataTextElement.innerHTML = "Decompressed data ready.";
+}
+
+function setFileDecompressedError(error_string) {
+  decompressionTextElement.innerHTML = error_string;
+  decompressionTextElement.style.color = "red";
+  savedataTextElement.style.color = "red";
+}
+
+
+
 async function loadDemoFromDisk() {
-  const f = await fetch('demo.json');
+  const f = await fetch('test_file2.zip');
   const bytes = await f.bytes();
   inputFileResult = new Uint8Array(bytes);
+  setFileLoaded();
 }
 
 async function saveDataToDisk() {
@@ -98,7 +120,7 @@ window.onload = async function () {
     requiredFeatures: ["timestamp-query"],
   });
 
- 
+
   context = canvas.getContext("webgpu");
   var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
@@ -112,11 +134,13 @@ window.onload = async function () {
   loaddata.addEventListener('click', () => {
     const f = document.createElement('input');
     f.type = 'file';
+    f.accept = ".zip";
     f.addEventListener('change', () => {
       const file = new FileReader(f.files[0]);
       file.addEventListener('load', () => {
         // File has loaded
         inputFileResult = new Uint8Array(file.result);
+        setFileLoaded();
       });
       file.readAsArrayBuffer(f.files[0]);
     });
@@ -136,7 +160,7 @@ window.onload = async function () {
   loadingTextElement = document.querySelector("#loadingtext");
   decompressionTextElement = document.querySelector("#decompressiontext");
   savedataTextElement = document.querySelector("#savedatatext");
-  
+
 
 }
 
@@ -341,7 +365,7 @@ async function RunDecompression() {
   const encoder = device.createCommandEncoder();
   const computePass = encoder.beginComputePass({
     label: "Timing request",
-    timestampWrites: {querySet: querySet, beginningOfPassWriteIndex:0, endOfPassWriteIndex:1},
+    timestampWrites: { querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
   });
 
   computePass.setPipeline(renderBufferPipeline);
@@ -389,8 +413,7 @@ async function RunDecompression() {
   const arrayBuffer = await readBuffer(device, queryBuffer);
   // Decode it into an array of timestamps in nanoseconds
   const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-  console.log(Number(timingsNanoseconds[1] -timingsNanoseconds[0])/1000000000.0);
-
+  const time_in_seconds = Number(timingsNanoseconds[1] - timingsNanoseconds[0]) / 1000000000.0;
 
   // Get result ouptut
   await stagingBuffer.mapAsync(
@@ -404,11 +427,15 @@ async function RunDecompression() {
 
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
-  console.log(crc_test);
-  console.log(crc_file);
+
+  if (crc_test != crc_file) {
+    setFileDecompressedError("CRC does not match original!");
+    return;
+  }
+
   //console.log(inflated_bytes);
-  var string = new TextDecoder().decode(inflated_bytes);
- // console.log(string);
+  //var string = new TextDecoder().decode(inflated_bytes);
+  // console.log(string);
 
 
   {
@@ -423,5 +450,6 @@ async function RunDecompression() {
     //console.log(new Uint32Array(data));
   }
   console.log("done");
+  setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds + " s");
 }
 
