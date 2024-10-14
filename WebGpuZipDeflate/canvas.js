@@ -5,8 +5,10 @@ var context;
 var forceIndexShaderModule
 var readOffset = 0;
 var inputFileResult = null;
+var inflated_bytes = null;
 
 const kDebugArraySize = 1024;
+var output_file_name = "";
 
 //https://stackoverflow.com/questions/18638900/javascript-crc32
 var crc32 = (function()
@@ -50,6 +52,15 @@ async function loadDemoFromDisk() {
   const f = await fetch('demo.json');
   const bytes = await f.bytes();
   inputFileResult = new Uint8Array(bytes);
+}
+
+async function saveDataToDisk() {
+  const text = inflated_bytes;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.download = output_file_name;
+  link.href = window.URL.createObjectURL(blob);
+  link.click();
 }
 
 
@@ -98,8 +109,8 @@ window.onload = async function () {
   const loaddemo = document.querySelector('#loaddemo');
   loaddemo.addEventListener('click', loadDemoFromDisk);
 
-  //const savedata = document.querySelector('#savedata');
-  //savedata.addEventListener('click', saveDataToDisk);
+  const savedata = document.querySelector('#savedata');
+  savedata.addEventListener('click', saveDataToDisk);
 
 
 
@@ -130,16 +141,16 @@ function read8() {
 
 function read16() {
   let res = inputFileResult[readOffset++];
-  res = res | inputFileResult[readOffset++] << 8;
-  return res;
+  res = res | (inputFileResult[readOffset++] << 8);
+  return  res>>>0;
 }
 
 function read32() {
   let res = inputFileResult[readOffset++];
-  res = res | inputFileResult[readOffset++] << 8;
-  res = res | inputFileResult[readOffset++] << 16;
-  res = res | inputFileResult[readOffset++] << 24;
-  return res;
+  res = res | (inputFileResult[readOffset++] << 8);
+  res = res | (inputFileResult[readOffset++] << 16);
+  res = res | (inputFileResult[readOffset++] << 24);
+  return res>>>0;
 }
 
 function RoundTo4(val) {
@@ -169,6 +180,8 @@ async function RunDecompression() {
     return;
   }
   // dynamic sided parts of header
+
+  output_file_name =  new TextDecoder().decode(inputFileResult.slice(readOffset, readOffset +file_name_num_bytes));
   readOffset += file_name_num_bytes;
   readOffset += file_extra_num_bytes;
 
@@ -330,7 +343,7 @@ async function RunDecompression() {
   const data = copyArrayBuffer.slice();
   stagingBuffer.unmap();
 
-  var inflated_bytes = new Uint8Array(data,0, uncompressed_size);
+  inflated_bytes = new Uint8Array(data,0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
   console.log(crc_test);
   console.log(crc_file);
@@ -348,7 +361,7 @@ async function RunDecompression() {
     const copyArrayBuffer = stagingBufferDebug.getMappedRange();
     const data = copyArrayBuffer.slice();
     stagingBufferDebug.unmap();
-    console.log(new Uint32Array(data));
+    //console.log(new Uint32Array(data));
   }
   console.log("done");
 }
