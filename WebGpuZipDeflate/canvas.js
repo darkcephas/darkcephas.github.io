@@ -6,45 +6,47 @@ var forceIndexShaderModule
 var readOffset = 0;
 var inputFileResult = null;
 var inflated_bytes = null;
+var querySet;
+var queryBuffer;
+
+var loadingTextElement;
+var decompressionTextElement;
+var savedataTextElement;
 
 const kDebugArraySize = 1024;
 var output_file_name = "";
+const capacity = 3;//Max number of timestamps we can store
 
 //https://stackoverflow.com/questions/18638900/javascript-crc32
-var crc32 = (function()
-{
-    var table = new Uint32Array(256);
+var crc32 = (function () {
+  var table = new Uint32Array(256);
 
-    // Pre-generate crc32 polynomial lookup table
-    // http://wiki.osdev.org/CRC32#Building_the_Lookup_Table
-    // ... Actually use Alex's because it generates the correct bit order
-    //     so no need for the reversal function
-    for(var i=256; i--;)
-    {
-        var tmp = i;
+  // Pre-generate crc32 polynomial lookup table
+  // http://wiki.osdev.org/CRC32#Building_the_Lookup_Table
+  // ... Actually use Alex's because it generates the correct bit order
+  //     so no need for the reversal function
+  for (var i = 256; i--;) {
+    var tmp = i;
 
-        for(var k=8; k--;)
-        {
-            tmp = tmp & 1 ? 3988292384 ^ tmp >>> 1 : tmp >>> 1;
-        }
-
-        table[i] = tmp;
+    for (var k = 8; k--;) {
+      tmp = tmp & 1 ? 3988292384 ^ tmp >>> 1 : tmp >>> 1;
     }
 
-    // crc32b
-    // Example input        : [97, 98, 99, 100, 101] (Uint8Array)
-    // Example output       : 2240272485 (Uint32)
-    return function( data )
-    {
-        var crc = -1; // Begin with all bits set ( 0xffffffff )
+    table[i] = tmp;
+  }
 
-        for(var i=0, l=data.length; i<l; i++)
-        {
-            crc = crc >>> 8 ^ table[ crc & 255 ^ data[i] ];
-        }
+  // crc32b
+  // Example input        : [97, 98, 99, 100, 101] (Uint8Array)
+  // Example output       : 2240272485 (Uint32)
+  return function (data) {
+    var crc = -1; // Begin with all bits set ( 0xffffffff )
 
-        return (crc ^ -1) >>> 0; // Apply binary NOT
-    };
+    for (var i = 0, l = data.length; i < l; i++) {
+      crc = crc >>> 8 ^ table[crc & 255 ^ data[i]];
+    }
+
+    return (crc ^ -1) >>> 0; // Apply binary NOT
+  };
 
 })();
 
@@ -64,6 +66,19 @@ async function saveDataToDisk() {
 }
 
 
+// For timestamps
+async function readBuffer(device, buffer) {
+  const size = buffer.size;
+  const gpuReadBuffer = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const copyEncoder = device.createCommandEncoder();
+  copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
+  const copyCommands = copyEncoder.finish();
+  device.queue.submit([copyCommands]);
+  await gpuReadBuffer.mapAsync(GPUMapMode.READ);
+  return gpuReadBuffer.getMappedRange();
+}
+
+
 window.onload = async function () {
   const canvas = document.querySelector("canvas");
   if (!canvas) {
@@ -78,7 +93,12 @@ window.onload = async function () {
   if (!adapter) {
     throw new Error("No appropriate GPUAdapter found.");
   }
-  device = await adapter.requestDevice();
+  // We dont need timestamps for this code to work but this is a prototype.
+  device = await adapter.requestDevice({
+    requiredFeatures: ["timestamp-query"],
+  });
+
+ 
   context = canvas.getContext("webgpu");
   var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
@@ -113,6 +133,10 @@ window.onload = async function () {
   savedata.addEventListener('click', saveDataToDisk);
 
 
+  loadingTextElement = document.querySelector("#loadingtext");
+  decompressionTextElement = document.querySelector("#decompressiontext");
+  savedataTextElement = document.querySelector("#savedatatext");
+  
 
 }
 
@@ -142,7 +166,7 @@ function read8() {
 function read16() {
   let res = inputFileResult[readOffset++];
   res = res | (inputFileResult[readOffset++] << 8);
-  return  res>>>0;
+  return res >>> 0;
 }
 
 function read32() {
@@ -150,7 +174,7 @@ function read32() {
   res = res | (inputFileResult[readOffset++] << 8);
   res = res | (inputFileResult[readOffset++] << 16);
   res = res | (inputFileResult[readOffset++] << 24);
-  return res>>>0;
+  return res >>> 0;
 }
 
 function RoundTo4(val) {
@@ -160,6 +184,7 @@ function RoundTo4(val) {
 
 
 async function RunDecompression() {
+  readOffset = 0;
   let header_signature = read32();
   let version = read16();
   let bit_flag = read16();
@@ -175,17 +200,31 @@ async function RunDecompression() {
   let compressed_size_rounded = RoundTo4(compressed_size);
   let uncompressed_size_rounded = RoundTo4(uncompressed_size);
 
-  if(compression_method == 0){
+  if (compression_method == 0) {
     console.log("not compressed");
     return;
   }
   // dynamic sided parts of header
 
-  output_file_name =  new TextDecoder().decode(inputFileResult.slice(readOffset, readOffset +file_name_num_bytes));
+  output_file_name = new TextDecoder().decode(inputFileResult.slice(readOffset, readOffset + file_name_num_bytes));
   readOffset += file_name_num_bytes;
   readOffset += file_extra_num_bytes;
 
   console.log(inputFileResult);
+
+
+  querySet = device.createQuerySet({
+    type: "timestamp",
+    count: capacity,
+  });
+  queryBuffer = device.createBuffer({
+    size: 8 * capacity,
+    usage: GPUBufferUsage.QUERY_RESOLVE
+      | GPUBufferUsage.STORAGE
+      | GPUBufferUsage.COPY_SRC
+      | GPUBufferUsage.COPY_DST,
+  });
+
   // Create the bind group layout and pipeline layout.
   let bindGroupLayout = device.createBindGroupLayout({
     label: "Cell Bind Group Layout",
@@ -270,13 +309,13 @@ async function RunDecompression() {
     });
 
 
-    
+
   let debuggingBufferStorage =
-  device.createBuffer({
-    label: "debugging storage result",
-    size: kDebugArraySize,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-  });
+    device.createBuffer({
+      label: "debugging storage result",
+      size: kDebugArraySize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
 
   let commonBindGroup =
     device.createBindGroup({
@@ -300,7 +339,11 @@ async function RunDecompression() {
 
 
   const encoder = device.createCommandEncoder();
-  const computePass = encoder.beginComputePass();
+  const computePass = encoder.beginComputePass({
+    label: "Timing request",
+    timestampWrites: {querySet: querySet, beginningOfPassWriteIndex:0, endOfPassWriteIndex:1},
+  });
+
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
   computePass.dispatchWorkgroups(1);
@@ -329,9 +372,25 @@ async function RunDecompression() {
     kDebugArraySize
   );
 
+  encoder.resolveQuerySet(
+    querySet,
+    0,// index of first query to resolve 
+    capacity,//number of queries to resolve
+    queryBuffer,
+    0);// destination offset
+
   const commandBuffer = encoder.finish();
 
   device.queue.submit([commandBuffer]);
+
+
+  // === After `commandEncoder.finish()` is called ===
+  // Read the storage buffer data
+  const arrayBuffer = await readBuffer(device, queryBuffer);
+  // Decode it into an array of timestamps in nanoseconds
+  const timingsNanoseconds = new BigInt64Array(arrayBuffer);
+  console.log(Number(timingsNanoseconds[1] -timingsNanoseconds[0])/1000000000.0);
+
 
   // Get result ouptut
   await stagingBuffer.mapAsync(
@@ -343,13 +402,13 @@ async function RunDecompression() {
   const data = copyArrayBuffer.slice();
   stagingBuffer.unmap();
 
-  inflated_bytes = new Uint8Array(data,0, uncompressed_size);
+  inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
   console.log(crc_test);
   console.log(crc_file);
-  console.log(inflated_bytes);
+  //console.log(inflated_bytes);
   var string = new TextDecoder().decode(inflated_bytes);
-  console.log(string);
+ // console.log(string);
 
 
   {

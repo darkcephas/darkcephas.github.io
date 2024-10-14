@@ -1,34 +1,47 @@
 <!doctype html>
 
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>WebGPU Zip deflate prototype</title>
-    <script src="shader.js"></script>
-    <script src="canvas.js"></script>
-  </head>
-  <body style="background-color:white" >
-    <canvas width="1" height="1"></canvas>
-    <script type="module">
-    </script>
-    <div id='saveload'>
-      <div class='sectionTitle'>Save/Load ...</div>
+
+<head>
+  <meta charset="utf-8">
+  <title>WebGPU Zip deflate prototype</title>
+  <script src="shader.js"></script>
+  <script src="canvas.js"></script>
+</head>
+
+<body style="background-color:white">
+  <canvas width="1" height="1"></canvas>
+  <script type="module">
+  </script>
+  <div id='saveload'>
+    <div class='sectionTitle'>WebGPU Zip deflate prototype.
+      <p>Load a file, decompress, and save to disk.</p>
+    </div>
+    <div class='section'>
+      <button id='loaddata' title="x">
+        <span>Load from disk</span>
+      </button>
+      <button id='loaddemo' title="">
+        <span>Load Demo zip</span>
+      </button>
+      <p id="loadingtext">Waiting for file Load...</p>
       <div class='section'>
-        <button id='loaddata' title="x">
-          <span>Load from disk</span>
+        <button id='decompress'>
+          <span>Decompress!</span>
         </button>
-        <button id='loaddemo' title="">
-          <span>load to demo</span>
-        </button>
-        <button id='decompress' >
-          <span >Decompress!</span>
-        </button>
+        <p id="decompressiontext">File not loaded...</p>
+      </div>
+      <div class='section'>
         <button id='savedata' title="">
           <span>Save to disk</span>
-        </button>
 
+        </button>
+        <p id="savedatatext">Waiting for decompress...</p>
       </div>
+
     </div>
-    
-  </body>
+  </div>
+
+</body>
+
 </html>
