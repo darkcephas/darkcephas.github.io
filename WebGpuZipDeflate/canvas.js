@@ -40,7 +40,7 @@ function setFileDecompressedError(error_string) {
 
 
 async function loadDemoFromDisk() {
-  const f = await fetch('test_file2.zip');
+  const f = await fetch('med_file.zip');
   const bytes = await f.bytes();
   inputFileResult = new Uint8Array(bytes);
   setFileLoaded();
