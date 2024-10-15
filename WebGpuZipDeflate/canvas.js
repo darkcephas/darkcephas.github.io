@@ -17,38 +17,6 @@ const kDebugArraySize = 1024;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
 
-//https://stackoverflow.com/questions/18638900/javascript-crc32
-var crc32 = (function () {
-  var table = new Uint32Array(256);
-
-  // Pre-generate crc32 polynomial lookup table
-  // http://wiki.osdev.org/CRC32#Building_the_Lookup_Table
-  // ... Actually use Alex's because it generates the correct bit order
-  //     so no need for the reversal function
-  for (var i = 256; i--;) {
-    var tmp = i;
-
-    for (var k = 8; k--;) {
-      tmp = tmp & 1 ? 3988292384 ^ tmp >>> 1 : tmp >>> 1;
-    }
-
-    table[i] = tmp;
-  }
-
-  // crc32b
-  // Example input        : [97, 98, 99, 100, 101] (Uint8Array)
-  // Example output       : 2240272485 (Uint32)
-  return function (data) {
-    var crc = -1; // Begin with all bits set ( 0xffffffff )
-
-    for (var i = 0, l = data.length; i < l; i++) {
-      crc = crc >>> 8 ^ table[crc & 255 ^ data[i]];
-    }
-
-    return (crc ^ -1) >>> 0; // Apply binary NOT
-  };
-
-})();
 
 function setFileLoaded() {
   loadingTextElement.innerHTML = "Done. ";
@@ -87,18 +55,6 @@ async function saveDataToDisk() {
   link.click();
 }
 
-
-// For timestamps
-async function readBuffer(device, buffer) {
-  const size = buffer.size;
-  const gpuReadBuffer = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-  const copyEncoder = device.createCommandEncoder();
-  copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
-  const copyCommands = copyEncoder.finish();
-  device.queue.submit([copyCommands]);
-  await gpuReadBuffer.mapAsync(GPUMapMode.READ);
-  return gpuReadBuffer.getMappedRange();
-}
 
 
 window.onload = async function () {
@@ -224,18 +180,17 @@ async function RunDecompression() {
   let compressed_size_rounded = RoundTo4(compressed_size);
   let uncompressed_size_rounded = RoundTo4(uncompressed_size);
 
-  if (compression_method == 0) {
-    console.log("not compressed");
-    return;
-  }
   // dynamic sided parts of header
 
   output_file_name = new TextDecoder().decode(inputFileResult.slice(readOffset, readOffset + file_name_num_bytes));
   readOffset += file_name_num_bytes;
   readOffset += file_extra_num_bytes;
 
-  console.log(inputFileResult);
-
+  if (compression_method == 0) {
+    inflated_bytes = inputFileResult.slice(readOffset, readOffset + uncompressed_size)
+    setFileDecompressed("Data not compressed.");
+    return;
+  }
 
   querySet = device.createQuerySet({
     type: "timestamp",
@@ -433,11 +388,6 @@ async function RunDecompression() {
     return;
   }
 
-  //console.log(inflated_bytes);
-  //var string = new TextDecoder().decode(inflated_bytes);
-  // console.log(string);
-
-
   {
     await stagingBufferDebug.mapAsync(
       GPUMapMode.READ,
@@ -449,7 +399,6 @@ async function RunDecompression() {
     stagingBufferDebug.unmap();
     //console.log(new Uint32Array(data));
   }
-  console.log("done");
   setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds + " s");
 }
 
