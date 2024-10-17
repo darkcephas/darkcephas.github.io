@@ -12,6 +12,8 @@ var queryBuffer;
 var loadingTextElement;
 var decompressionTextElement;
 var savedataTextElement;
+var radioOriginalElement;
+var radioByteElement;
 
 const kDebugArraySize = 1024;
 var output_file_name = "";
@@ -119,7 +121,8 @@ window.onload = async function () {
   decompressionTextElement = document.querySelector("#decompressiontext");
   savedataTextElement = document.querySelector("#savedatatext");
 
-
+  radioOriginalElement = document.querySelector("#decompress_radio_original");
+  radioByteElement = document.querySelector("#decompress_radio_byte");
 }
 
 
@@ -234,10 +237,17 @@ async function RunDecompression() {
   });
 
 
+  var shader_code = "";
+  if(radioOriginalElement.checked){
+    shader_code = shaderCode_original;
+  }
+  if(radioByteElement.checked){
+    shader_code = shaderCode_byte;
+  }
 
   forceIndexShaderModule = device.createShaderModule({
     label: "Force Index shader",
-    code: shaderCode,
+    code: shader_code,
   });
 
 

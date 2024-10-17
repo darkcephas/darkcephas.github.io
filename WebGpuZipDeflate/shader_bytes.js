@@ -1,9 +1,7 @@
 "use strict";
 
 
-const WORKGROUP_SIZE = 1;
-
-const shaderCode_original = `
+const shaderCode_byte = `
 struct CommonData {
       outlen:  u32,       /* available space at out */
      inlen: u32,    /* available input at in */

@@ -7,6 +7,7 @@
   <title>WebGPU Zip deflate prototype</title>
   <script src="external.js"></script>
   <script src="shader_original.js"></script>
+  <script src="shader_bytes.js"></script>
   <script src="canvas.js"></script>
 </head>
 
@@ -18,6 +19,15 @@
     <div class='sectionTitle'>WebGPU Zip deflate prototype.
       <p>Load a file, decompress, and save to disk.</p>
     </div>
+    <div class='section'>  
+      <p>Select decompression method</p>
+       <input type="radio" id="decompress_radio_original" name="decompress_selection" value="original" checked="checked">
+       <label for="original">original</label>
+       <input type="radio" id="decompress_radio_byte" name="decompress_selection" value="byte">
+       <label for="byte">byte</label>
+       
+    </div>
+    <br>  
     <div class='section'>
       <button id='loaddata' title="x">
         <span>Load from disk</span>
