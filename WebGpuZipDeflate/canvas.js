@@ -409,7 +409,7 @@ async function RunDecompression() {
     const copyArrayBuffer = stagingBufferDebug.getMappedRange();
     const data = copyArrayBuffer.slice();
     stagingBufferDebug.unmap();
-    //console.log(new Uint32Array(data));
+    console.log(new Uint32Array(data));
   }
   setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds + " s");
 }

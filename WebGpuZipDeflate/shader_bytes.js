@@ -365,14 +365,11 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 
 fn  codes() -> i32
 {
-    var symbol:i32;         /* decoded symbol */
-  
-    var dist:u32;      /* distance for copy */
-
+          /* decoded symbol */
 
     /* decode literals and length/distance pairs */
     while(true) {
-        symbol = decode_lencode();
+         var symbol:i32  = decode_lencode();
         if (symbol < 0) {
             return symbol;              /* invalid symbol */
         }
@@ -398,7 +395,8 @@ fn  codes() -> i32
             if (symbol < 0) {
                 return symbol;          /* invalid symbol */
             }
-            dist = dists[symbol] + bits(dext[symbol]);
+                /* distance for copy */
+            var dist:u32 =  dists[symbol] + bits(dext[symbol]);
 
             /* copy length bytes from distance bytes back */
             if (ts.outcnt + len > ws.outlen) {

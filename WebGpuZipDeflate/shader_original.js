@@ -1,7 +1,6 @@
 "use strict";
-
-
 const WORKGROUP_SIZE = 1;
+
 
 const shaderCode_original = `
 struct CommonData {
@@ -46,10 +45,14 @@ var<workgroup>  distsym:array<i32, MAXDCODES>;
 var<workgroup> ws : CommonData;
 
 
+const ERROR_OUTPUT_OVERFLOW = 2;
+const ERROR_NO_MATCH_COMPLEMENT = 2;
+const ERROR_RAN_OUT_OF_CODES = -10;
+
 fn  ReadByteIn() -> u32
 {
     if (ts.incnt + 1 > ws.inlen) {
-        ts.err = 2;
+        ts.err = ERROR_OUTPUT_OVERFLOW;
         return 0;
     }
 
@@ -65,7 +68,7 @@ fn  ReadByteIn() -> u32
 fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 {
     if (ts.outcnt + 1 > ws.outlen) {
-        ts.err = 2;
+        ts.err = ERROR_OUTPUT_OVERFLOW;
         return 0;
     }
 
@@ -81,7 +84,7 @@ fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 fn WriteByteOut( val:u32)
 {
     if (ts.outcnt + 1 > ws.outlen) {
-        ts.err = 2;
+        ts.err = ERROR_OUTPUT_OVERFLOW;
         return;
     }
 
@@ -127,7 +130,7 @@ fn  stored() -> i32
     var len :u32 = ReadByteIn() | (ReadByteIn() << 8);
     if( ReadByteIn() != (~len & 0xff) ||
         ReadByteIn() != ((~len >> 8) & 0xff)) {
-        ts.err = -2;  /* didn't match complement! */
+        ts.err = ERROR_NO_MATCH_COMPLEMENT;  
     }
 
     while (len !=0) {
@@ -145,28 +148,27 @@ fn  stored() -> i32
 
 fn  decode_lencode() -> i32
 {
-    var len:i32;            /* current number of bits in code */
-    var code:i32;           /* len bits being decoded */
-    var first:i32;          /* first code of length len */
-    var count:i32;          /* number of codes of length len */
-    var index:i32;          /* index of first code of length len in symbol table */               
-    var next:i32;        /* next number of codes */
-
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
     var left:i32 =i32(ts.bitcnt);
-    code = 0;
-    first = 0;
-    index = 0;
-    len = 1;
-    next = 1;
+     // len bits being decoded 
+    var code:i32 = 0;
+    // first code of length len 
+    var first:i32 = 0;
+     // index of first code of length len in symbol table 
+    var index:i32 = 0;
+     // current number of bits in code 
+    var len:i32 = 1;
+      // next number of codes 
+    var next:i32 = 1;
     while (true) {
         while (left !=0) {
             left--;
             code |= bitbuf & 1;
             bitbuf >>= 1;
-            count =  lencnt[next];
+            // number of codes of length len 
+            var count:i32 =  lencnt[next];
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
@@ -191,33 +193,27 @@ fn  decode_lencode() -> i32
             left = 8;
         }
     }
-    ts.err = -10;
-    return -10;                         /* ran out of codes */
+    ts.err = ERROR_RAN_OUT_OF_CODES;
+    return ERROR_RAN_OUT_OF_CODES;                        
 }
 
 fn decode_distcode() -> i32
 {
-    var len:i32;            /* current number of bits in code */
-    var code:i32;           /* len bits being decoded */
-    var first:i32;          /* first code of length len */
-    var count:i32;          /* number of codes of length len */
-    var index:i32;          /* index of first code of length len in symbol table */
-    var next:i32;        /* next number of codes */
-
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
     var left:i32 = i32(ts.bitcnt);
-    code = 0;
-    first = 0;
-    index = 0;
-    len = 1;
-    next = 1;
+     var code:i32 = 0; // len bits being decoded
+    var first:i32 = 0;  // first code of length len 
+    var index:i32 = 0; // index of first code of length len in symbol table 
+    var len:i32 = 1; // current number of bits in code
+     var next:i32 = 1;    /* next number of codes */
     while (true) {
         while (left !=0) {
             code |= bitbuf & 1;
             bitbuf >>= 1;
-            count =  distcnt[next];
+             /* number of codes of length len */
+             var count:i32 =  distcnt[next];
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
@@ -242,8 +238,8 @@ fn decode_distcode() -> i32
             left = 8;
         }
     }
-    ts.err = -10;
-    return -10;                         /* ran out of codes */
+    ts.err = ERROR_RAN_OUT_OF_CODES;
+    return ERROR_RAN_OUT_OF_CODES;
 }
 
 
@@ -367,48 +363,42 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 
 fn  codes() -> i32
 {
-    var symbol:i32;         /* decoded symbol */
-  
-    var dist:u32;      /* distance for copy */
-
-
     /* decode literals and length/distance pairs */
     while(true) {
-        symbol = decode_lencode();
+        var symbol:i32  = decode_lencode();
         if (symbol < 0) {
             return symbol;              /* invalid symbol */
         }
 
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
-            if (ts.outcnt == ws.outlen) {
-                return 1;
-            }
             WriteByteOut(u32(symbol));
         }
-        else if (symbol > 256) {        /* length */
-            /* get and compute length */
+        else if (symbol > 256) {        
+            // length 
+            // get and compute length 
             symbol -= 257;
             if (symbol >= 29) {
-                return -10;             /* invalid fixed code */
+                // invalid fixed code
+                return -10;           
             }
-             var len:u32;            /* length for copy */
+                 // length for copy 
+             var len:u32;           
             len = lens[symbol] + bits(lext[symbol]);
 
-            /* get and check distance */
+            // get and check distance 
             symbol = decode_distcode();
             if (symbol < 0) {
-                return symbol;          /* invalid symbol */
+              // invalid symbol 
+                return symbol;        
             }
-            dist = dists[symbol] + bits(dext[symbol]);
+            // distance for copy 
+            var dist:u32 =  dists[symbol] + bits(dext[symbol]);
 
-            /* copy length bytes from distance bytes back */
-            if (ts.outcnt + len > ws.outlen) {
-                return 1;
-            }
-            while (len !=0) {
+            // copy length bytes from distance bytes back
+            while (len != 0) {
                 len--;
-                var val:u32 = PeekByteOut(dist);// out[ts.outcnt - dist];
+                var val:u32 = PeekByteOut(dist);
                 WriteByteOut(val);
             }
         }
@@ -427,7 +417,7 @@ fn  codes() -> i32
 fn fixed()
 {
     /* build fixed huffman tables if first call (may not be thread safe) */
-    var symbol:i32;
+    var symbol:u32;
     /* literal/length table */
     for (symbol = 0; symbol < 144; symbol++) {
         lengths[symbol] = 8;
