@@ -1,6 +1,5 @@
 "use strict";
 
-
 const shaderCode_byte = `
 struct CommonData {
       outlen:  u32,       /* available space at out */
@@ -18,9 +17,6 @@ struct ThreadState {
 
 var<private> ts : ThreadState;
 
-
-
-
 const MAXBITS=15 ;             /* maximum bits in a code */
 const MAXLCODES=286 ;          /* maximum number of literal/length codes */
 const MAXDCODES=30 ;           /* maximum number of distance codes */
@@ -30,9 +26,9 @@ const FIXLCODES=288;           /* number of fixed literal/length codes */
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
 var<workgroup>  lencnt:array<i32, MAXBITS + 1>;
-var<workgroup>  lensym:array<i32, FIXLCODES>;
+var<workgroup>  lensym:array<u32, FIXLCODES>;
 var<workgroup>  distcnt:array<i32, MAXBITS + 1>;
-var<workgroup>  distsym:array<i32, MAXDCODES>;
+var<workgroup>  distsym:array<u32, MAXDCODES>;
 
 
 
@@ -44,11 +40,27 @@ var<workgroup>  distsym:array<i32, MAXDCODES>;
 var<workgroup> ws : CommonData;
 
 
+const ERROR_OUTPUT_OVERFLOW = 2;
+const ERROR_NO_MATCH_COMPLEMENT = 2;
+const ERROR_RAN_OUT_OF_CODES = -10;
+const ERROR_INCOMPLETE_CODE_SINGLE = -8;
+const ERROR_NO_END_BLOCK_CODE = -9;
+const ERROR_NO_LAST_LENGTH = -5;
+const ERROR_INVALID_SYMBOL=-7;
+const ERROR_BAD_COUNTS = -3;
+const ERROR_REQUIRED_COMPLETE_CODE=-4;
+const ERROR_TOO_MANY_LENGTHS= -6;
+
+fn ReportError(error_code:i32){
+    if(ts.err==0){
+        ts.err = error_code;
+    }
+}
+
 fn  ReadByteIn() -> u32
 {
     if (ts.incnt + 1 > ws.inlen) {
-        ts.err = 2;
-        return 0;
+        ReportError(ERROR_OUTPUT_OVERFLOW);
     }
 
     var val:u32 = in[ts.incnt/4];
@@ -63,8 +75,7 @@ fn  ReadByteIn() -> u32
 fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 {
     if (ts.outcnt + 1 > ws.outlen) {
-        ts.err = 2;
-        return 0;
+        ReportError(ERROR_OUTPUT_OVERFLOW);
     }
 
     var  offset:u32 = ts.outcnt - rev_offset_in_bytes;
@@ -79,7 +90,7 @@ fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 fn WriteByteOut( val:u32)
 {
     if (ts.outcnt + 1 > ws.outlen) {
-        ts.err = 2;
+        ReportError(ERROR_OUTPUT_OVERFLOW);
         return;
     }
 
@@ -114,7 +125,7 @@ fn bits( need:u32) ->u32
     return u32(val & ((1u << need) - 1u));
 }
 
-fn  stored() -> i32
+fn  stored() 
 {
     /* discard leftover bits from current byte (assumes ts.bitcnt < 8) */
     ts.bitbuf = 0;
@@ -125,7 +136,7 @@ fn  stored() -> i32
     var len :u32 = ReadByteIn() | (ReadByteIn() << 8);
     if( ReadByteIn() != (~len & 0xff) ||
         ReadByteIn() != ((~len >> 8) & 0xff)) {
-        ts.err = -2;  /* didn't match complement! */
+        ReportError(ERROR_NO_MATCH_COMPLEMENT);  
     }
 
     while (len !=0) {
@@ -133,46 +144,44 @@ fn  stored() -> i32
         var val:u32 = ReadByteIn();
         WriteByteOut(val);
     }
-
-    /* done with a valid stored block */
-    return 0;
 }
 
 
 
 
-fn  decode_lencode() -> i32
+fn  decode_lencode() -> u32
 {
-    var len:i32;            /* current number of bits in code */
-    var code:i32;           /* len bits being decoded */
-    var first:i32;          /* first code of length len */
-    var count:i32;          /* number of codes of length len */
-    var index:i32;          /* index of first code of length len in symbol table */               
-    var next:i32;        /* next number of codes */
-
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
     var left:i32 =i32(ts.bitcnt);
-    code = 0;
-    first = 0;
-    index = 0;
-    len = 1;
-    next = 1;
+     // len bits being decoded 
+    var code:i32 = 0;
+    // first code of length len 
+    var first:i32 = 0;
+     // index of first code of length len in symbol table 
+    var index:i32 = 0;
+     // current number of bits in code 
+    var len:i32 = 1;
+      // next number of codes 
+    var next:i32 = 1;
     while (true) {
         while (left !=0) {
             left--;
             code |= bitbuf & 1;
             bitbuf >>= 1;
-            count =  lencnt[next];
+            // number of codes of length len 
+            var count:i32 =  lencnt[next];
             next++;
-            if (code - count < first) { /* if length len, return symbol */
+            if (code - count < first) { 
+                // if length len, return symbol
                 ts.bitbuf = u32(bitbuf);
                 ts.bitcnt = (ts.bitcnt - u32(len)) & 0x7u;
                 var local_inded:i32 = index + (code - first);
                 return  lensym[local_inded];
             }
-            index += count;             /* else update for next length */
+            // else update for next length
+            index += count;            
             first += count;
             first <<= 1;
             code <<= 1;
@@ -189,33 +198,27 @@ fn  decode_lencode() -> i32
             left = 8;
         }
     }
-    ts.err = -10;
-    return -10;                         /* ran out of codes */
+    ReportError(ERROR_RAN_OUT_OF_CODES);
+    return 0;                        
 }
 
-fn decode_distcode() -> i32
+fn decode_distcode() -> u32
 {
-    var len:i32;            /* current number of bits in code */
-    var code:i32;           /* len bits being decoded */
-    var first:i32;          /* first code of length len */
-    var count:i32;          /* number of codes of length len */
-    var index:i32;          /* index of first code of length len in symbol table */
-    var next:i32;        /* next number of codes */
-
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
     var left:i32 = i32(ts.bitcnt);
-    code = 0;
-    first = 0;
-    index = 0;
-    len = 1;
-    next = 1;
+     var code:i32 = 0; // len bits being decoded
+    var first:i32 = 0;  // first code of length len 
+    var index:i32 = 0; // index of first code of length len in symbol table 
+    var len:i32 = 1; // current number of bits in code
+     var next:i32 = 1;    /* next number of codes */
     while (true) {
         while (left !=0) {
             code |= bitbuf & 1;
             bitbuf >>= 1;
-            count =  distcnt[next];
+             /* number of codes of length len */
+             var count:i32 =  distcnt[next];
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
@@ -240,8 +243,8 @@ fn decode_distcode() -> i32
             left = 8;
         }
     }
-    ts.err = -10;
-    return -10;                         /* ran out of codes */
+    ReportError(ERROR_RAN_OUT_OF_CODES);
+    return 0;
 }
 
 
@@ -287,7 +290,7 @@ fn construct_lencode(offset:i32, n:i32) -> i32
      */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
         if (lengths[symbol+ offset] != 0) {
-            lensym[offs[lengths[symbol+ offset]]] = i32(symbol);
+            lensym[offs[lengths[symbol+ offset]]] = u32(symbol);
             offs[lengths[symbol+ offset]]++;
         }
     }
@@ -337,7 +340,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
      */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
         if (lengths[symbol+offset] != 0) {
-            distsym[offs[lengths[symbol+offset]]] = i32(symbol);
+            distsym[offs[lengths[symbol+offset]]] = u32(symbol);
             offs[lengths[symbol+offset]]++;
         }
     }
@@ -346,6 +349,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
     return left;
 }
 
+// Const data access is very fast
 const lens= array<u32,29> ( /* Size base for length codes 257..285 */
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 );
@@ -365,46 +369,36 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 
 fn  codes() -> i32
 {
-          /* decoded symbol */
-
     /* decode literals and length/distance pairs */
     while(true) {
-         var symbol:i32  = decode_lencode();
-        if (symbol < 0) {
-            return symbol;              /* invalid symbol */
-        }
-
+        var symbol:u32  = decode_lencode();
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
-            if (ts.outcnt == ws.outlen) {
-                return 1;
-            }
             WriteByteOut(u32(symbol));
         }
-        else if (symbol > 256) {        /* length */
-            /* get and compute length */
+        else if (symbol > 256) {        
+            // length and distance codes
+            // get and compute length 
             symbol -= 257;
             if (symbol >= 29) {
-                return -10;             /* invalid fixed code */
+                 ReportError(ERROR_RAN_OUT_OF_CODES);       
             }
-             var len:u32;            /* length for copy */
+            // length for copy 
+            var len:u32;           
             len = lens[symbol] + bits(lext[symbol]);
 
-            /* get and check distance */
+            // get and check distance 
             symbol = decode_distcode();
             if (symbol < 0) {
-                return symbol;          /* invalid symbol */
+                ReportError(ERROR_INVALID_SYMBOL);       
             }
-                /* distance for copy */
+            // distance for copy 
             var dist:u32 =  dists[symbol] + bits(dext[symbol]);
 
-            /* copy length bytes from distance bytes back */
-            if (ts.outcnt + len > ws.outlen) {
-                return 1;
-            }
-            while (len !=0) {
+            // copy length bytes from distance bytes back
+            while (len != 0) {
                 len--;
-                var val:u32 = PeekByteOut(dist);// out[ts.outcnt - dist];
+                var val:u32 = PeekByteOut(dist);
                 WriteByteOut(val);
             }
         }
@@ -423,7 +417,7 @@ fn  codes() -> i32
 fn fixed()
 {
     /* build fixed huffman tables if first call (may not be thread safe) */
-    var symbol:i32;
+    var symbol:u32;
     /* literal/length table */
     for (symbol = 0; symbol < 144; symbol++) {
         lengths[symbol] = 8;
@@ -462,7 +456,7 @@ fn dynamic()
     var ncode:u32 = bits(4) + 4u;
     if (nlen > MAXLCODES || ndist > MAXDCODES) {
         /* bad counts */
-        err = -3; 
+        err = ERROR_BAD_COUNTS;
         return;
     }
 
@@ -478,7 +472,7 @@ fn dynamic()
     err = construct_lencode(0, 19);
     if (err != 0) {
         /* require complete code set here */
-        err =  -4;
+        err = ERROR_REQUIRED_COMPLETE_CODE;
         return;
     }
 
@@ -502,8 +496,7 @@ fn dynamic()
             len = 0;                    /* assume repeating zeros */
             if (symbol == 16) {         /* repeat last length 3..6 times */
                 if (index == 0) {
-                    err = -5;
-                    /* no last length! */
+                    err = ERROR_NO_LAST_LENGTH;
                     return;      
                 }
                 len = u32(lengths[index - 1]);       /* last length */
@@ -517,7 +510,7 @@ fn dynamic()
             }
             if (index + symbol > nlen + ndist) {
                 /* too many lengths! */
-                err = -6;
+                err = ERROR_TOO_MANY_LENGTHS;// -6;
                 return;            
             }
             while (symbol !=0) {            /* repeat last or zero symbol times */
@@ -530,23 +523,23 @@ fn dynamic()
 
     /* check for end-of-block code -- there better be one! */
     if (lengths[256] == 0) {
-        err = -9;
+        err = ERROR_NO_END_BLOCK_CODE; 
         return;
     }
 
     /* build huffman table for literal/length codes */
     err = construct_lencode(0, i32(nlen));
     if (err !=0  && (err < 0 || nlen != u32(lencnt[0] + lencnt[1]) )) {
-        /* incomplete code ok only for single length 1 code */
-        err = -7;
+        // incomplete code ok only for single length 1 code 
+        err = ERROR_INCOMPLETE_CODE_SINGLE;
         return;     
     }
 
     /* build huffman table for distance codes */
     err = construct_distcode(i32(nlen),i32(ndist));
     if (err !=0 && (err < 0 || ndist != u32(distcnt[0] + distcnt[1]) )) {
-        /* incomplete code ok only for single length 1 code */
-        err = -8;
+        // incomplete code ok only for single length 1 code 
+        err = ERROR_INCOMPLETE_CODE_SINGLE;
         return;   
     }
 }
