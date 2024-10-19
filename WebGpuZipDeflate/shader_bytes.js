@@ -108,8 +108,8 @@ fn WriteByteOut( val:u32)
 
 fn bits( need:u32) ->u32
 {
-    /* bit accumulator (can use up to 20 bits) */
-    /* load at least need bits into val */
+    // bit accumulator (can use up to 20 bits) */
+    // load at least need bits into val
     var val :u32 = ts.bitbuf;
     while (ts.bitcnt < need) {
         var val2: u32 = ReadByteIn();
@@ -117,22 +117,22 @@ fn bits( need:u32) ->u32
         ts.bitcnt += 8;
     }
 
-    /* drop need bits and update buffer, always zero to seven bits left */
+    // drop need bits and update buffer, always zero to seven bits left
     ts.bitbuf = val >> need;
     ts.bitcnt -= need;
 
-    /* return need bits, zeroing the bits above that */
+    // return need bits, zeroing the bits above that
     return u32(val & ((1u << need) - 1u));
 }
 
 fn  stored() 
 {
-    /* discard leftover bits from current byte (assumes ts.bitcnt < 8) */
+    // discard leftover bits from current byte (assumes ts.bitcnt < 8) 
     ts.bitbuf = 0;
     ts.bitcnt = 0;
 
-    /* get length and check against its one's complement */
-    /* length of stored block */
+    // get length and check against its one's complement 
+    // length of stored block 
     var len :u32 = ReadByteIn() | (ReadByteIn() << 8);
     if( ReadByteIn() != (~len & 0xff) ||
         ReadByteIn() != ((~len >> 8) & 0xff)) {
@@ -146,11 +146,9 @@ fn  stored()
     }
 }
 
-
-
-
 fn  decode_lencode() -> u32
 {
+
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
@@ -167,6 +165,7 @@ fn  decode_lencode() -> u32
     var next:i32 = 1;
     while (true) {
         while (left !=0) {
+               
             left--;
             code |= bitbuf & 1;
             bitbuf >>= 1;
@@ -204,21 +203,22 @@ fn  decode_lencode() -> u32
 
 fn decode_distcode() -> u32
 {
+
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
     var left:i32 = i32(ts.bitcnt);
-     var code:i32 = 0; // len bits being decoded
+    var code:i32 = 0; // len bits being decoded
     var first:i32 = 0;  // first code of length len 
     var index:i32 = 0; // index of first code of length len in symbol table 
     var len:i32 = 1; // current number of bits in code
-     var next:i32 = 1;    /* next number of codes */
+    var next:i32 = 1;    // next number of codes 
     while (true) {
         while (left !=0) {
             code |= bitbuf & 1;
             bitbuf >>= 1;
              /* number of codes of length len */
-             var count:i32 =  distcnt[next];
+             var count:i32 = distcnt[next];
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
@@ -371,12 +371,13 @@ fn  codes() -> i32
 {
     /* decode literals and length/distance pairs */
     while(true) {
+         
         var symbol:u32  = decode_lencode();
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
             WriteByteOut(u32(symbol));
         }
-        else if (symbol > 256) {        
+        else if (symbol > 256) {     
             // length and distance codes
             // get and compute length 
             symbol -= 257;

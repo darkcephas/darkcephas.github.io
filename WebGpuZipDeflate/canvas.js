@@ -411,6 +411,7 @@ async function RunDecompression() {
     stagingBufferDebug.unmap();
     console.log(new Uint32Array(data));
   }
-  setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds + " s");
+  let uncompressed_size_mb = uncompressed_size/1000000;
+  setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds.toFixed(4) + " s" + " as " + (uncompressed_size_mb/time_in_seconds).toFixed(2) + " Mb/s");
 }
 
