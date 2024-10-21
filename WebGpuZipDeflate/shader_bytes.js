@@ -250,7 +250,7 @@ fn decode_distcode() -> u32
 
 
 
-fn construct_lencode(offset:i32, n:i32) -> i32 
+fn construct_lencode(n:i32) -> i32 
 {       
     var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
 
@@ -260,7 +260,7 @@ fn construct_lencode(offset:i32, n:i32) -> i32
     }
     /* current symbol when stepping through length[] */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
-        (lencnt[lengths[symbol+ offset]])++;   /* assumes lengths are within bounds */
+        (lencnt[lengths[symbol]])++;   /* assumes lengths are within bounds */
     }
 
     if (lencnt[0] == n) {              /* no codes! */
@@ -289,9 +289,9 @@ fn construct_lencode(offset:i32, n:i32) -> i32
      * length
      */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
-        if (lengths[symbol+ offset] != 0) {
-            lensym[offs[lengths[symbol+ offset]]] = u32(symbol);
-            offs[lengths[symbol+ offset]]++;
+        if (lengths[symbol] != 0) {
+            lensym[offs[lengths[symbol]]] = u32(symbol);
+            offs[lengths[symbol]]++;
         }
     }
 
@@ -367,11 +367,18 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 
 
 
-fn  codes() -> i32
+fn  codes()
 {
+    if(debug[10]==0)
+    {
+        for(var i=0; i< 15;i++){
+        debug[15+i] =u32(distcnt[i]);
+        }
+        debug[10]++;
+    }
+
     /* decode literals and length/distance pairs */
     while(true) {
-         
         var symbol:u32  = decode_lencode();
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
@@ -390,9 +397,6 @@ fn  codes() -> i32
 
             // get and check distance 
             symbol = decode_distcode();
-            if (symbol < 0) {
-                ReportError(ERROR_INVALID_SYMBOL);       
-            }
             // distance for copy 
             var dist:u32 =  dists[symbol] + bits(dext[symbol]);
 
@@ -406,12 +410,12 @@ fn  codes() -> i32
 
          /* end of block symbol */
         if (symbol == 256){
-          return 0;
+          return;
         }          
     }
 
     /* done with a valid fixed or dynamic block */
-    return 0;
+    return;
 }
     
     
@@ -432,7 +436,7 @@ fn fixed()
     for (; symbol < FIXLCODES; symbol++) {
         lengths[symbol] = 8;
     }
-    construct_lencode(0, FIXLCODES);
+    construct_lencode(FIXLCODES);
 
     /* distance table */
     for (symbol = 0; symbol < MAXDCODES; symbol++) {
@@ -470,7 +474,7 @@ fn dynamic()
     }
 
     /* build huffman table for code lengths codes (use lencode temporarily) */
-    err = construct_lencode(0, 19);
+    err = construct_lencode(19);
     if (err != 0) {
         /* require complete code set here */
         err = ERROR_REQUIRED_COMPLETE_CODE;
@@ -529,7 +533,7 @@ fn dynamic()
     }
 
     /* build huffman table for literal/length codes */
-    err = construct_lencode(0, i32(nlen));
+    err = construct_lencode(i32(nlen));
     if (err !=0  && (err < 0 || nlen != u32(lencnt[0] + lencnt[1]) )) {
         // incomplete code ok only for single length 1 code 
         err = ERROR_INCOMPLETE_CODE_SINGLE;
@@ -579,12 +583,12 @@ fn puff( dictlen:u32,         // length of custom dictionary
             if (type_now == 1) {
                 debug[1]++;
                 fixed();
-                ts.err |= codes();
+                codes();
             }
             else if (type_now == 2) {
                 debug[2]++;
                 dynamic();
-                ts.err |= codes();
+                codes();
 
             }
             else {
