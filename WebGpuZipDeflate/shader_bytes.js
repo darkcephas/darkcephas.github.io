@@ -88,7 +88,7 @@ fn  ReadByteIn() -> u32
 
 fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 {
-    var  offset:u32 = ts.outcnt - rev_offset_in_bytes;
+    var offset:u32 = ts.outcnt - rev_offset_in_bytes;
     var sub_index:u32 = offset % 4;
     var  val:u32 = out[offset / 4];
     if( (ts.outcnt%4) >= rev_offset_in_bytes  ){
@@ -117,8 +117,7 @@ fn WriteByteOut( val:u32)
 
     var  sub_index:u32 = ts.outcnt % 4;
     // mask out the byte
-    ts.writebufbytes = ts.writebufbytes & ~(0xffu << (sub_index*8u));
-    ts.writebufbytes = ts.writebufbytes | ( (val&0xffu) << (sub_index * 8u));
+    ts.writebufbytes = ts.writebufbytes | ( val << (sub_index * 8u));
 
     // Is last byte of dword
     if(sub_index == 3){
