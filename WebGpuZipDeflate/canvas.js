@@ -15,7 +15,7 @@ var savedataTextElement;
 var radioOriginalElement;
 var radioByteElement;
 
-const kDebugArraySize = 1024;
+const kDebugArraySize = 1024*16;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
 

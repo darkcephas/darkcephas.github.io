@@ -13,6 +13,16 @@ struct ThreadState {
      bitbuf:u32,                 /* bit buffer */
      bitcnt:u32,                 /* number of bits in bit buffer */
      err:i32,
+
+     // 32 bits to be read as byte
+     readbufbytes:u32, 
+     // read buffer num bytes
+     readbufcnt:u32,
+     
+     // 32 bits to be write as byte
+     writebufbytes:u32, 
+     // read buffer num bytes
+     writebufcnt:u32 
 } ;
 
 var<private> ts : ThreadState;
@@ -30,7 +40,7 @@ var<workgroup>  lensym:array<u32, FIXLCODES>;
 var<workgroup>  distcnt:array<i32, MAXBITS + 1>;
 var<workgroup>  distsym:array<u32, MAXDCODES>;
 
-
+var<workgroup> debug_counter:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<u32>;
@@ -63,7 +73,11 @@ fn  ReadByteIn() -> u32
         ReportError(ERROR_OUTPUT_OVERFLOW);
     }
 
-    var val:u32 = in[ts.incnt/4];
+    if(ts.incnt % 4 == 0){
+       // read 4 bytes in
+       ts.readbufbytes = in[ts.incnt/4];
+    }
+    var val:u32 = ts.readbufbytes;
 
     var sub_index:u32 = ts.incnt % 4;
     val = (val >> (8 * sub_index)) & 0xff;
@@ -86,7 +100,6 @@ fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
     return val;
 }
 
-
 fn WriteByteOut( val:u32)
 {
     if (ts.outcnt + 1 > ws.outlen) {
@@ -103,6 +116,17 @@ fn WriteByteOut( val:u32)
 
     out[ts.outcnt/4] = curr_val;
     ts.outcnt++;
+}
+
+fn CopyBytes( dist:u32, len:u32) 
+{
+    var len_tmp = len;
+    while (len_tmp != 0) {
+        len_tmp--;
+        var val:u32 = PeekByteOut(dist);
+        WriteByteOut(val);
+    }
+    return;
 }
 
 
@@ -165,14 +189,13 @@ fn  decode_lencode() -> u32
     var next:i32 = 1;
     while (true) {
         while (left !=0) {
-               
             left--;
             code |= bitbuf & 1;
             bitbuf >>= 1;
             // number of codes of length len 
             var count:i32 =  lencnt[next];
             next++;
-            if (code - count < first) { 
+            if (code - first < count) { 
                 // if length len, return symbol
                 ts.bitbuf = u32(bitbuf);
                 ts.bitcnt = (ts.bitcnt - u32(len)) & 0x7u;
@@ -366,23 +389,26 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
     12, 12, 13, 13 );
 
 
+var<private> debug_idx:u32;
 
 fn  codes()
 {
-    if(debug[10]==0)
-    {
-        for(var i=0; i< 15;i++){
-        debug[15+i] =u32(distcnt[i]);
-        }
-        debug[10]++;
-    }
 
     /* decode literals and length/distance pairs */
     while(true) {
+       debug[15+debug_idx] = 0xFFFFu;debug_idx++;
+        debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
+
         var symbol:u32  = decode_lencode();
+        debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
+            debug_idx++;
+            debug_idx++;
+            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
+            debug[15+debug_idx] = 1;debug_idx++;
             WriteByteOut(u32(symbol));
+            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
         }
         else if (symbol > 256) {     
             // length and distance codes
@@ -399,13 +425,15 @@ fn  codes()
             symbol = decode_distcode();
             // distance for copy 
             var dist:u32 =  dists[symbol] + bits(dext[symbol]);
-
+            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
+            debug[15+debug_idx] = len;debug_idx++;
+            debug[15+debug_idx] = dist;debug_idx++;
             // copy length bytes from distance bytes back
-            while (len != 0) {
-                len--;
-                var val:u32 = PeekByteOut(dist);
-                WriteByteOut(val);
-            }
+            CopyBytes(dist, len);
+    
+            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
+            debug_idx++;
+            debug_idx++;
         }
 
          /* end of block symbol */
@@ -567,6 +595,10 @@ fn puff( dictlen:u32,         // length of custom dictionary
     ts.incnt = 0;
     ts.bitbuf = 0;
     ts.bitcnt = 0;
+    ts.readbufbytes = 0;
+    ts.readbufcnt  = 0;
+    ts.writebufbytes = 0;
+    ts.writebufcnt = 0;
 
 
     /* process blocks until last block or error */
@@ -615,9 +647,19 @@ fn puff( dictlen:u32,         // length of custom dictionary
     return ts.err;
 }
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
+@compute @workgroup_size(64)
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+ @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
+  if(local_invocation_index != 0)
+  {
+    if(local_invocation_index == 63){
+        for(var i =0;i <1000000;i++){
+            atomicAdd(&debug_counter,1);
+        }
+    }
+    return;
+  }
   puff(0,unidata.outlen, unidata.inlen);
   debug[0] = 777;
 }
