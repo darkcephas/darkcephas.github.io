@@ -88,33 +88,44 @@ fn  ReadByteIn() -> u32
 
 fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 {
-    if (ts.outcnt + 1 > ws.outlen) {
-        ReportError(ERROR_OUTPUT_OVERFLOW);
-    }
-
     var  offset:u32 = ts.outcnt - rev_offset_in_bytes;
-    var  val:u32 = out[offset / 4];
-
     var sub_index:u32 = offset % 4;
+    var  val:u32 = out[offset / 4];
+    if( (ts.outcnt%4) >= rev_offset_in_bytes  ){
+        val = ts.writebufbytes;
+    }
     val = (val >> (8 * sub_index)) & 0xff;
     return val;
+}
+
+fn FinishByteOut()
+{
+    var  sub_index:u32 = ts.outcnt % 4;
+    if(sub_index != 0){
+        // Write it out
+        out[ts.outcnt/4] = ts.writebufbytes;
+        ts.writebufbytes = 0;
+    }
 }
 
 fn WriteByteOut( val:u32)
 {
     if (ts.outcnt + 1 > ws.outlen) {
         ReportError(ERROR_OUTPUT_OVERFLOW);
-        return;
+        // webgpu handles any buffer out of bounds!
     }
-
-    var curr_val:u32 = out[ts.outcnt/4];
 
     var  sub_index:u32 = ts.outcnt % 4;
     // mask out the byte
-    curr_val = curr_val & ~(0xffu << (sub_index*8u));
-    curr_val = curr_val | ( (val&0xffu) << (sub_index * 8u));
+    ts.writebufbytes = ts.writebufbytes & ~(0xffu << (sub_index*8u));
+    ts.writebufbytes = ts.writebufbytes | ( (val&0xffu) << (sub_index * 8u));
 
-    out[ts.outcnt/4] = curr_val;
+    // Is last byte of dword
+    if(sub_index == 3){
+        // 0,1,2,3 bytes have written. full 32 bits. Write it out
+        out[ts.outcnt/4] = ts.writebufbytes;
+        ts.writebufbytes = 0;
+    }
     ts.outcnt++;
 }
 
@@ -396,19 +407,11 @@ fn  codes()
 
     /* decode literals and length/distance pairs */
     while(true) {
-       debug[15+debug_idx] = 0xFFFFu;debug_idx++;
-        debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
-
         var symbol:u32  = decode_lencode();
-        debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
+
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
-            debug_idx++;
-            debug_idx++;
-            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
-            debug[15+debug_idx] = 1;debug_idx++;
             WriteByteOut(u32(symbol));
-            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
         }
         else if (symbol > 256) {     
             // length and distance codes
@@ -425,15 +428,9 @@ fn  codes()
             symbol = decode_distcode();
             // distance for copy 
             var dist:u32 =  dists[symbol] + bits(dext[symbol]);
-            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
-            debug[15+debug_idx] = len;debug_idx++;
-            debug[15+debug_idx] = dist;debug_idx++;
+
             // copy length bytes from distance bytes back
             CopyBytes(dist, len);
-    
-            debug[15+debug_idx] = atomicLoad(&debug_counter);debug_idx++;
-            debug_idx++;
-            debug_idx++;
         }
 
          /* end of block symbol */
@@ -661,6 +658,7 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
     return;
   }
   puff(0,unidata.outlen, unidata.inlen);
+  FinishByteOut();
   debug[0] = 777;
 }
 `;

@@ -395,10 +395,7 @@ async function RunDecompression() {
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
 
-  if (crc_test != crc_file) {
-    setFileDecompressedError("CRC does not match original!");
-    return;
-  }
+
 
   {
     await stagingBufferDebug.mapAsync(
@@ -412,6 +409,10 @@ async function RunDecompression() {
     console.log(new Uint32Array(data));
   }
   let uncompressed_size_mb = uncompressed_size/1000000;
+  if (crc_test != crc_file) {
+    setFileDecompressedError("CRC does not match original!");
+    return;
+  }
   setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds.toFixed(4) + " s" + " as " + (uncompressed_size_mb/time_in_seconds).toFixed(2) + " Mb/s");
 }
 
