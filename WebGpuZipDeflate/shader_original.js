@@ -36,6 +36,7 @@ var<workgroup>  distcnt:array<i32, MAXBITS + 1>;
 var<workgroup>  distsym:array<i32, MAXDCODES>;
 
 
+var<workgroup> debug_counter:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<u32>;
@@ -616,10 +617,23 @@ fn puff( dictlen:u32,         // length of custom dictionary
     return ts.err;
 }
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
+@compute @workgroup_size(256)
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+ @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
+  if(local_invocation_index != 0)
+  {
+    if(local_invocation_index == 63){
+        for(var i =0;i <10000000;i++){
+            atomicAdd(&debug_counter,1);
+        }
+    }
+    return;
+  }
+
   puff(0,unidata.outlen, unidata.inlen);
-  debug[0] = 777;
+
+  debug[0] = 776;
+
 }
 `;

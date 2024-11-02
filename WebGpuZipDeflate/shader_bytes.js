@@ -110,13 +110,8 @@ fn FinishByteOut()
 
 fn WriteByteOut( val:u32)
 {
-    if (ts.outcnt + 1 > ws.outlen) {
-        ReportError(ERROR_OUTPUT_OVERFLOW);
-        // webgpu handles any buffer out of bounds!
-    }
 
     var  sub_index:u32 = ts.outcnt % 4;
-    // mask out the byte
     ts.writebufbytes = ts.writebufbytes | ( val << (sub_index * 8u));
 
     // Is last byte of dword
@@ -124,18 +119,29 @@ fn WriteByteOut( val:u32)
         // 0,1,2,3 bytes have written. full 32 bits. Write it out
         out[ts.outcnt/4] = ts.writebufbytes;
         ts.writebufbytes = 0;
+        if (ts.outcnt + 1 > ws.outlen) {
+            ReportError(ERROR_OUTPUT_OVERFLOW);
+            // webgpu handles any buffer out of bounds!
+        }
     }
     ts.outcnt++;
 }
 
+var<private> debug_idx:u32;
+
 fn CopyBytes( dist:u32, len:u32) 
 {
+   
     var len_tmp = len;
     while (len_tmp != 0) {
         len_tmp--;
+     
         var val:u32 = PeekByteOut(dist);
+         
         WriteByteOut(val);
+          
     }
+   
     return;
 }
 
@@ -182,7 +188,6 @@ fn  stored()
 
 fn  decode_lencode() -> u32
 {
-
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
@@ -399,7 +404,6 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
     12, 12, 13, 13 );
 
 
-var<private> debug_idx:u32;
 
 fn  codes()
 {
@@ -650,12 +654,13 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
   if(local_invocation_index != 0)
   {
     if(local_invocation_index == 63){
-        for(var i =0;i <1000000;i++){
+        for(var i =0;i <100000000;i++){
             atomicAdd(&debug_counter,1);
         }
     }
     return;
   }
+   
   puff(0,unidata.outlen, unidata.inlen);
   FinishByteOut();
   debug[0] = 777;
