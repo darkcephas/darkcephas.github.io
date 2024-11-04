@@ -664,7 +664,7 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
   if(local_invocation_index != 0)
   {
     if(local_invocation_index == 63){
-        for(var i =0;i <100000000;i++){
+        for(var i =0;i <1;i++){
             atomicAdd(&debug_counter,1);
         }
     }
