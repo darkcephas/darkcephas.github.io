@@ -148,20 +148,33 @@ fn CopyBytes( dist:u32, len:u32)
     return;
 }
 
+fn Ensure16( ) 
+{
+    if (ts.bitcnt < 15) {
+        var val :u32 = ts.bitbuf;
+        {
+            var val2: u32 = ReadByteIn();
+            val |= val2 << ts.bitcnt;  /* load eight bits */
+            ts.bitcnt += 8;
+        }
+        {
+            var val2: u32 = ReadByteIn();
+            val |= val2 << ts.bitcnt;  /* load eight bits */
+            ts.bitcnt += 8;
+        }
+        ts.bitbuf = val;
+    }
+}
 
 fn bits( need:u32) ->u32
 {
     // bit accumulator (can use up to 20 bits) */
     // load at least need bits into val
-    var val :u32 = ts.bitbuf;
-    while (ts.bitcnt < need) {
-        var val2: u32 = ReadByteIn();
-        val |= val2 << ts.bitcnt;  /* load eight bits */
-        ts.bitcnt += 8;
-    }
+    Ensure16();
 
     // drop need bits and update buffer, always zero to seven bits left
-    ts.bitbuf = val >> need;
+    var val:u32 = ts.bitbuf;
+    ts.bitbuf = ts.bitbuf >> need;
     ts.bitcnt -= need;
 
     // return need bits, zeroing the bits above that
@@ -191,6 +204,7 @@ fn  stored()
 
 fn  decode_lencode() -> u32
 {
+     Ensure16();
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
@@ -216,7 +230,7 @@ fn  decode_lencode() -> u32
             if (code - first < count) { 
                 // if length len, return symbol
                 ts.bitbuf = u32(bitbuf);
-                ts.bitcnt = (ts.bitcnt - u32(len)) & 0x7u;
+                ts.bitcnt = (ts.bitcnt - u32(len));
                 var local_inded:i32 = index + (code - first);
                 return  lensym[local_inded];
             }
@@ -228,15 +242,8 @@ fn  decode_lencode() -> u32
             len++;
            
         }
-        left = (MAXBITS + 1) - len;
-        if (left == 0) {
-            break;
-        }
-
-        bitbuf = i32(ReadByteIn());
-        if (left > 8) {
-            left = 8;
-        }
+        ReportError(ERROR_RAN_OUT_OF_CODES);
+        return 0;
     }
     ReportError(ERROR_RAN_OUT_OF_CODES);
     return 0;                        
@@ -244,7 +251,7 @@ fn  decode_lencode() -> u32
 
 fn decode_distcode() -> u32
 {
-
+    Ensure16();
      /* bits from stream */
     var bitbuf:i32 = i32(ts.bitbuf);
     /* bits left in next or left to process */
@@ -263,7 +270,7 @@ fn decode_distcode() -> u32
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
-                ts.bitcnt = (ts.bitcnt - u32(len)) & 0x7u;
+                ts.bitcnt = (ts.bitcnt - u32(len));
                 var local_inded:i32 = index + (code - first);
                 return  distsym[local_inded];
             }
@@ -274,15 +281,9 @@ fn decode_distcode() -> u32
             len++;
             left--;
         }
-        left = (MAXBITS + 1) - len;
-        if (left == 0) {
-            break;
-        }
+        ReportError(ERROR_RAN_OUT_OF_CODES);
+        return 0;
 
-        bitbuf = i32(ReadByteIn());
-        if (left > 8) {
-            left = 8;
-        }
     }
     ReportError(ERROR_RAN_OUT_OF_CODES);
     return 0;
@@ -414,7 +415,6 @@ fn  codes()
     /* decode literals and length/distance pairs */
     while(true) {
         var symbol:u32  = decode_lencode();
-        debug[debug_idx] = symbol;debug_idx++;
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
             WriteByteOut(u32(symbol));
@@ -446,7 +446,7 @@ fn  codes()
           
         if(ts.err != 0){
             break;
-        }          
+        }
     }
 
     /* done with a valid fixed or dynamic block */
@@ -673,6 +673,6 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
    
   puff(0,unidata.outlen, unidata.inlen);
   FinishByteOut();
-  debug[0] = u32(ts.err);
+  debug[0] = 777;//u32(ts.err);
 }
 `;
