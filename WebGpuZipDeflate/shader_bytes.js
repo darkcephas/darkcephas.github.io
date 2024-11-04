@@ -51,7 +51,9 @@ var<workgroup> ws : CommonData;
 
 
 const ERROR_OUTPUT_OVERFLOW = 2;
-const ERROR_NO_MATCH_COMPLEMENT = 2;
+const ERROR_NO_MATCH_COMPLEMENT = 3;
+const ERROR_INPUT_OVERFLOW = 4;
+const ERROR_INPUT_BITS_OVERFLOW = 5;
 const ERROR_RAN_OUT_OF_CODES = -10;
 const ERROR_INCOMPLETE_CODE_SINGLE = -8;
 const ERROR_NO_END_BLOCK_CODE = -9;
@@ -70,7 +72,8 @@ fn ReportError(error_code:i32){
 fn  ReadByteIn() -> u32
 {
     if (ts.incnt + 1 > ws.inlen) {
-        ReportError(ERROR_OUTPUT_OVERFLOW);
+        ReportError(ERROR_INPUT_OVERFLOW);
+        return 0;
     }
 
     if(ts.incnt % 4 == 0){
@@ -127,7 +130,7 @@ fn WriteByteOut( val:u32)
     ts.outcnt++;
 }
 
-var<private> debug_idx:u32;
+var<private> debug_idx:u32 = 20;
 
 fn CopyBytes( dist:u32, len:u32) 
 {
@@ -411,7 +414,7 @@ fn  codes()
     /* decode literals and length/distance pairs */
     while(true) {
         var symbol:u32  = decode_lencode();
-
+        debug[debug_idx] = symbol;debug_idx++;
         if (symbol < 256) {             /* literal: symbol is the byte */
             /* write out the literal */
             WriteByteOut(u32(symbol));
@@ -439,6 +442,10 @@ fn  codes()
          /* end of block symbol */
         if (symbol == 256){
           return;
+        }      
+          
+        if(ts.err != 0){
+            break;
         }          
     }
 
@@ -604,6 +611,9 @@ fn puff( dictlen:u32,         // length of custom dictionary
     /* process blocks until last block or error */
     var last:u32 =0;             /* block information */
     while(true) {
+        if(ts.err != 0){
+            break;
+        }
         last = bits(1);         /* one if last block */
         var type_now:u32 = bits(2);         /* block type_now 0..3 */
         if (type_now == 0) {
@@ -663,6 +673,6 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
    
   puff(0,unidata.outlen, unidata.inlen);
   FinishByteOut();
-  debug[0] = 777;
+  debug[0] = u32(ts.err);
 }
 `;
