@@ -73,7 +73,6 @@ fn  ReadByteIn() -> u32
 {
     if (ts.incnt + 1 > ws.inlen) {
         ReportError(ERROR_INPUT_OVERFLOW);
-        return 0;
     }
 
     if(ts.incnt % 4 == 0){
@@ -113,7 +112,6 @@ fn FinishByteOut()
 
 fn WriteByteOut( val:u32)
 {
-
     var  sub_index:u32 = ts.outcnt % 4;
     ts.writebufbytes = ts.writebufbytes | ( val << (sub_index * 8u));
 
@@ -134,34 +132,24 @@ var<private> debug_idx:u32 = 20;
 
 fn CopyBytes( dist:u32, len:u32) 
 {
-   
     var len_tmp = len;
     while (len_tmp != 0) {
         len_tmp--;
-     
         var val:u32 = PeekByteOut(dist);
-         
         WriteByteOut(val);
           
     }
-   
     return;
 }
 
 fn Ensure16( ) 
 {
+    // For some reason there are bugs at 16. Likely signed arithmetic
     if (ts.bitcnt < 15) {
         var val :u32 = ts.bitbuf;
-        {
-            var val2: u32 = ReadByteIn();
-            val |= val2 << ts.bitcnt;  /* load eight bits */
-            ts.bitcnt += 8;
-        }
-        {
-            var val2: u32 = ReadByteIn();
-            val |= val2 << ts.bitcnt;  /* load eight bits */
-            ts.bitcnt += 8;
-        }
+        val |=  ReadByteIn() << ts.bitcnt;  /* load eight bits */
+        val |= ReadByteIn() << (ts.bitcnt+8);  /* load eight bits */
+        ts.bitcnt += 16;
         ts.bitbuf = val;
     }
 }
@@ -239,8 +227,7 @@ fn  decode_lencode() -> u32
             first += count;
             first <<= 1;
             code <<= 1;
-            len++;
-           
+            len++;   
         }
         ReportError(ERROR_RAN_OUT_OF_CODES);
         return 0;
