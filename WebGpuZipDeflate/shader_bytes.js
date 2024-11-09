@@ -232,73 +232,20 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sy
     return 0;
 }
 
-
-
-
-fn construct_lencode(n:i32) -> i32 
-{       
-    var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
-
-    /* count number of codes of each length */
-    for (var len:i32 = 0; len <= MAXBITS; len++) {
-        lencnt[len] = 0;
-    }
-    /* current symbol when stepping through length[] */
-    for (var symbol:i32 = 0; symbol < n; symbol++) {
-        (lencnt[lengths[symbol]])++;   /* assumes lengths are within bounds */
-    }
-
-    if (i32(lencnt[0]) == n) {              /* no codes! */
-        return 0;                       /* complete, but decode() will fail */
-    }
-
-    /* check for an over-subscribed or incomplete set of lengths */
-     var left:i32 = 1;                           /* one possible code of zero length */
-     /* current length when stepping through h->count[] */
-    for (var len:i32 = 1; len <= MAXBITS; len++) {
-        left <<= 1;                     /* one more bit, double codes left */
-        left -= i32(lencnt[len]);          /* deduct count from possible codes */
-        if (left < 0) {
-            return left;                // over-subscribed--return negative
-        }
-    }                                   // left > 0 means incomplete 
-
-    // generate offsets into symbol table for each length for sorting 
-    offs[1] = 0;
-    for (var len:i32 = 1; len < MAXBITS; len++) {
-        offs[len + 1] = offs[len] + i32(lencnt[len]);
-    }
-
-    /*
-     * put symbols in table sorted by length, by symbol order within each
-     * length
-     */
-    for (var symbol:i32 = 0; symbol < n; symbol++) {
-        if (lengths[symbol] != 0) {
-            lensym[offs[lengths[symbol]]] = u32(symbol);
-            offs[lengths[symbol]]++;
-        }
-    }
-
-    /* return zero for complete set, positive for incomplete set */
-    return left;
-}
-
-
-fn construct_distcode( offset:i32,  n:i32) -> i32 
+fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>, ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>, offset:i32,  n:i32) -> i32 
 {
     var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
 
     /* count number of codes of each length */
     for (var len:i32 = 0; len <= MAXBITS; len++) {
-        distcnt[len] = 0;
+        ptr_array_cnt[len] = 0;
     }
     /* current symbol when stepping through length[] */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
-        (distcnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
+        (ptr_array_cnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
     }
 
-    if (i32(distcnt[0]) == n) {              /* no codes! */
+    if (i32(ptr_array_cnt[0]) == n) {              /* no codes! */
         return 0;                       /* complete, but decode() will fail */
     }
 
@@ -307,7 +254,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
      /* current length when stepping through h->count[] */
     for (var len:i32 = 1; len <= MAXBITS; len++) {
         left <<= 1;                     /* one more bit, double codes left */
-        left -= i32(distcnt[len]);          /* deduct count from possible codes */
+        left -= i32(ptr_array_cnt[len]);          /* deduct count from possible codes */
         if (left < 0) {
             return left;                /* over-subscribed--return negative */
         }
@@ -316,7 +263,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
     /* generate offsets into symbol table for each length for sorting */
     offs[1] = 0;
     for (var len:i32 = 1; len < MAXBITS; len++) {
-        offs[len + 1] = offs[len] + i32(distcnt[len]);
+        offs[len + 1] = offs[len] + i32(ptr_array_cnt[len]);
     }
 
     /*
@@ -325,7 +272,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
      */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
         if (lengths[symbol+offset] != 0) {
-            distsym[offs[lengths[symbol+offset]]] = u32(symbol);
+            ptr_array_sym[offs[lengths[symbol+offset]]] = u32(symbol);
             offs[lengths[symbol+offset]]++;
         }
     }
@@ -334,7 +281,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
     return left;
 }
 
-// Const data access is very fast
+// Const data access is very fast ...  no worries!
 const lens= array<u32,29> ( /* Size base for length codes 257..285 */
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 );
@@ -349,8 +296,6 @@ const  dext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
     7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
     12, 12, 13, 13 );
-
-
 
 fn  codes()
 {
@@ -405,13 +350,13 @@ fn fixed()
     for (; symbol < FIXLCODES; symbol++) {
         lengths[symbol] = 8;
     }
-    construct_lencode(FIXLCODES);
+    construct_code(&lencnt, &lensym, 0, FIXLCODES);
 
     // distance table
     for (symbol = 0; symbol < MAXDCODES; symbol++) {
         lengths[symbol] = 5;
     }
-    construct_distcode(0, MAXDCODES);
+    construct_code(&distcnt, &distsym, 0, MAXDCODES);
 }
 
 
@@ -442,7 +387,7 @@ fn dynamic()
     }
 
     /* build huffman table for code lengths codes (use lencode temporarily) */
-    if (construct_lencode(19) != 0) {
+    if (construct_code(&lencnt, &lensym, 0 , 19) != 0) {
         /* require complete code set here */
         ReportError(ERROR_REQUIRED_COMPLETE_CODE);
         return;
@@ -500,7 +445,7 @@ fn dynamic()
     }
 
     /* build huffman table for literal/length codes */
-    var err:i32 = construct_lencode(i32(nlen));
+    var err:i32 = construct_code(&lencnt, &lensym, 0, i32(nlen));
     if (err !=0  && (err < 0 || nlen != u32(lencnt[0] + lencnt[1]) )) {
         // incomplete code ok only for single length 1 code 
         ReportError(ERROR_INCOMPLETE_CODE_SINGLE);
@@ -508,7 +453,7 @@ fn dynamic()
     }
 
     /* build huffman table for distance codes */
-    err = construct_distcode(i32(nlen),i32(ndist));
+    err = construct_code(&distcnt, &distsym, i32(nlen),i32(ndist));
     if (err !=0 && (err < 0 || ndist != u32(distcnt[0] + distcnt[1]) )) {
         // incomplete code ok only for single length 1 code 
         ReportError(ERROR_INCOMPLETE_CODE_SINGLE);
