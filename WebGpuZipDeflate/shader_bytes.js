@@ -148,7 +148,7 @@ fn Ensure16( )
     // For some reason there are bugs at 16. Likely signed arithmetic
     if (ts.bitcnt < 15) {
         var val :u32 = ts.bitbuf;
-        val |=  ReadByteIn() << ts.bitcnt;  /* load eight bits */
+        val |= ReadByteIn() << ts.bitcnt;  /* load eight bits */
         val |= ReadByteIn() << (ts.bitcnt+8);  /* load eight bits */
         ts.bitcnt += 16;
         ts.bitbuf = val;
@@ -193,23 +193,24 @@ fn  stored()
 
 fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>> ) -> u32
 {
+    // bits from stream 
     Ensure16();
-     /* bits from stream */
-    var bitbuf:i32 = i32(ts.bitbuf);
+    var bitbuf:u32 = ts.bitbuf;
     /* bits left in next or left to process */
     var left:i32 = i32(ts.bitcnt);
     var code:i32 = 0; // len bits being decoded
     var first:i32 = 0;  // first code of length len 
     var index:i32 = 0; // index of first code of length len in symbol table 
-    var len:i32 = 1; // current number of bits in code
-    var next:i32 = 1;    // next number of codes 
+    var len:u32 = 1; // current number of bits in code
+    // This code is making a tree from lower(left) to larger(right) bits
+    // each bit adds another level to the tree ;increasing the available codes
+    // the count for this level removes these codes 
     while (true) {
         while (left !=0) {
-            code |= bitbuf & 1;
+            code |= i32(bitbuf & 1);
             bitbuf >>= 1;
             // number of codes of length len 
-            var count:i32 = i32(ptr_array_cnt[next]);
-            next++;
+            var count:i32 = i32(ptr_array_cnt[len]);
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
                 ts.bitcnt = (ts.bitcnt - u32(len));
