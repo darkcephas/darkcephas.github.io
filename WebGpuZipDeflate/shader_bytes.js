@@ -35,9 +35,9 @@ const FIXLCODES=288;           /* number of fixed literal/length codes */
 
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
-var<workgroup>  lencnt:array<i32, MAXBITS + 1>;
+var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
 var<workgroup>  lensym:array<u32, FIXLCODES>;
-var<workgroup>  distcnt:array<i32, MAXBITS + 1>;
+var<workgroup>  distcnt:array<u32, MAXBITS + 1>;
  // Length should be MAXDCODES but is FIXLCODES to use same fixed sized pointer
 var<workgroup>  distsym:array<u32, FIXLCODES>;
 
@@ -191,7 +191,7 @@ fn  stored()
     }
 }
 
-fn decode(ptr_array_cnt: ptr<workgroup, array<i32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>> ) -> u32
+fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>> ) -> u32
 {
     Ensure16();
      /* bits from stream */
@@ -207,8 +207,8 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<i32,  MAXBITS + 1>> , ptr_array_sy
         while (left !=0) {
             code |= bitbuf & 1;
             bitbuf >>= 1;
-             /* number of codes of length len */
-             var count:i32 = ptr_array_cnt[next];
+            // number of codes of length len 
+            var count:i32 = i32(ptr_array_cnt[next]);
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
@@ -216,7 +216,8 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<i32,  MAXBITS + 1>> , ptr_array_sy
                 var local_inded:i32 = index + (code - first);
                 return  ptr_array_sym[local_inded];
             }
-            index += count;             /* else update for next length */
+            // else update for next length
+            index += count;             
             first += count;
             first <<= 1;
             code <<= 1;
@@ -247,7 +248,7 @@ fn construct_lencode(n:i32) -> i32
         (lencnt[lengths[symbol]])++;   /* assumes lengths are within bounds */
     }
 
-    if (lencnt[0] == n) {              /* no codes! */
+    if (i32(lencnt[0]) == n) {              /* no codes! */
         return 0;                       /* complete, but decode() will fail */
     }
 
@@ -256,7 +257,7 @@ fn construct_lencode(n:i32) -> i32
      /* current length when stepping through h->count[] */
     for (var len:i32 = 1; len <= MAXBITS; len++) {
         left <<= 1;                     /* one more bit, double codes left */
-        left -= lencnt[len];          /* deduct count from possible codes */
+        left -= i32(lencnt[len]);          /* deduct count from possible codes */
         if (left < 0) {
             return left;                // over-subscribed--return negative
         }
@@ -265,7 +266,7 @@ fn construct_lencode(n:i32) -> i32
     // generate offsets into symbol table for each length for sorting 
     offs[1] = 0;
     for (var len:i32 = 1; len < MAXBITS; len++) {
-        offs[len + 1] = offs[len] + lencnt[len];
+        offs[len + 1] = offs[len] + i32(lencnt[len]);
     }
 
     /*
@@ -297,7 +298,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
         (distcnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
     }
 
-    if (distcnt[0] == n) {              /* no codes! */
+    if (i32(distcnt[0]) == n) {              /* no codes! */
         return 0;                       /* complete, but decode() will fail */
     }
 
@@ -306,7 +307,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
      /* current length when stepping through h->count[] */
     for (var len:i32 = 1; len <= MAXBITS; len++) {
         left <<= 1;                     /* one more bit, double codes left */
-        left -= distcnt[len];          /* deduct count from possible codes */
+        left -= i32(distcnt[len]);          /* deduct count from possible codes */
         if (left < 0) {
             return left;                /* over-subscribed--return negative */
         }
@@ -315,7 +316,7 @@ fn construct_distcode( offset:i32,  n:i32) -> i32
     /* generate offsets into symbol table for each length for sorting */
     offs[1] = 0;
     for (var len:i32 = 1; len < MAXBITS; len++) {
-        offs[len + 1] = offs[len] + distcnt[len];
+        offs[len + 1] = offs[len] + i32(distcnt[len]);
     }
 
     /*
@@ -355,7 +356,7 @@ fn  codes()
 {
     // decode literals and length/distance pairs 
     while(true) {
-        var symbol:u32  = decode(&lencnt, &lensym);
+        var symbol:u32 = decode(&lencnt, &lensym);
         if (symbol < 256) { // literal: symbol is the byte 
             WriteByteOut(symbol); // write out the literal 
         }
