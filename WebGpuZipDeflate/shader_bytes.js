@@ -38,7 +38,8 @@ var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code leng
 var<workgroup>  lencnt:array<i32, MAXBITS + 1>;
 var<workgroup>  lensym:array<u32, FIXLCODES>;
 var<workgroup>  distcnt:array<i32, MAXBITS + 1>;
-var<workgroup>  distsym:array<u32, MAXDCODES>;
+ // Length should be MAXDCODES but is FIXLCODES to use same fixed sized pointer
+var<workgroup>  distsym:array<u32, FIXLCODES>;
 
 var<workgroup> debug_counter:atomic<u32>;
 
@@ -190,53 +191,7 @@ fn  stored()
     }
 }
 
-fn  decode_lencode() -> u32
-{
-    Ensure16();
-     /* bits from stream */
-    var bitbuf:i32 = i32(ts.bitbuf);
-    /* bits left in next or left to process */
-    var left:i32 =i32(ts.bitcnt);
-     // len bits being decoded 
-    var code:i32 = 0;
-    // first code of length len 
-    var first:i32 = 0;
-     // index of first code of length len in symbol table 
-    var index:i32 = 0;
-     // current number of bits in code 
-    var len:i32 = 1;
-      // next number of codes 
-    var next:i32 = 1;
-    while (true) {
-        while (left !=0) {
-            left--;
-            code |= bitbuf & 1;
-            bitbuf >>= 1;
-            // number of codes of length len 
-            var count:i32 =  lencnt[next];
-            next++;
-            if (code - first < count) { 
-                // if length len, return symbol
-                ts.bitbuf = u32(bitbuf);
-                ts.bitcnt = (ts.bitcnt - u32(len));
-                var local_inded:i32 = index + (code - first);
-                return  lensym[local_inded];
-            }
-            // else update for next length
-            index += count;            
-            first += count;
-            first <<= 1;
-            code <<= 1;
-            len++;   
-        }
-        ReportError(ERROR_RAN_OUT_OF_CODES);
-        return 0;
-    }
-    ReportError(ERROR_RAN_OUT_OF_CODES);
-    return 0;                        
-}
-
-fn decode_distcode() -> u32
+fn decode(ptr_array_cnt: ptr<workgroup, array<i32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>> ) -> u32
 {
     Ensure16();
      /* bits from stream */
@@ -253,13 +208,13 @@ fn decode_distcode() -> u32
             code |= bitbuf & 1;
             bitbuf >>= 1;
              /* number of codes of length len */
-             var count:i32 = distcnt[next];
+             var count:i32 = ptr_array_cnt[next];
             next++;
             if (code - count < first) { /* if length len, return symbol */
                 ts.bitbuf = u32(bitbuf);
                 ts.bitcnt = (ts.bitcnt - u32(len));
                 var local_inded:i32 = index + (code - first);
-                return  distsym[local_inded];
+                return  ptr_array_sym[local_inded];
             }
             index += count;             /* else update for next length */
             first += count;
@@ -400,7 +355,7 @@ fn  codes()
 {
     // decode literals and length/distance pairs 
     while(true) {
-        var symbol:u32  = decode_lencode();
+        var symbol:u32  = decode(&lencnt, &lensym);
         if (symbol < 256) { // literal: symbol is the byte 
             WriteByteOut(symbol); // write out the literal 
         }
@@ -417,7 +372,7 @@ fn  codes()
             len = lens[symbol] + bits(lext[symbol]);
 
             // get and check distance 
-            symbol = decode_distcode();
+            symbol = decode(&distcnt, &distsym);
             // distance for copy 
             var dist:u32 =  dists[symbol] + bits(dext[symbol]);
 
@@ -498,7 +453,7 @@ fn dynamic()
         var symbol:u32;             /* decoded value */
         var len:u32;                /* last length to repeat */
 
-        symbol = u32(decode_lencode());
+        symbol = u32(decode(&lencnt, &lensym));
         if (symbol < 0) {
             /* invalid symbol */
             ReportError(ERROR_INVALID_SYMBOL);
