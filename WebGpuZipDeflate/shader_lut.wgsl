@@ -249,11 +249,23 @@ fn decode_mutate(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_a
 fn GenLut()
 {
     for(var i:u32 = 0u ; i < 1024;i++){
-         lenLut[i] = 0xFFFFFFFF;// decode(&lencnt, &lensym, i, 10);
+        var decode_res:DecodeRtn = decode(&lencnt, &lensym, i, 10);
+         if(decode_res.cnt == 0){
+             lenLut[i] = 0xFFFFFFFF;
+         }
+         else{
+            lenLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
+         }
     }
 
     for(var i:u32 = 0u ; i < 1024;i++){
-        distLut[i] =  0xFFFFFFFF;// decode(&distcnt, &distsym, i, 10);
+        var decode_res:DecodeRtn = decode(&distcnt, &distsym, i, 10);
+         if(decode_res.cnt == 0){
+             distLut[i] = 0xFFFFFFFF;
+         }
+         else{
+            distLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
+         }
     }
 }
 
@@ -332,8 +344,14 @@ fn  codes()
         Ensure16();
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
         var symbol:u32 = 0u;
-        if(lut_len_res == 0xFFFFFFFF){
+        if(lut_len_res == 0xFFFFFFFF){ 
             symbol = decode_mutate(&lencnt, &lensym);
+        }
+        else {
+            symbol = 0xFFFF & lut_len_res;
+            let temp_cnt:u32 = lut_len_res >> 16;
+            ts.bitbuf = ts.bitbuf >> temp_cnt;
+            ts.bitcnt = ts.bitcnt - temp_cnt;
         }
         if (symbol < 256) { // literal: symbol is the byte 
             WriteByteOut(symbol); // write out the literal 
@@ -352,8 +370,14 @@ fn  codes()
              // bits from stream 
             Ensure16();
             var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
-            if(lut_len_res == 0xFFFFFFFF){
+            if(lut_dist_res == 0xFFFFFFFF) {
                 symbol = decode_mutate(&distcnt, &distsym);
+            }
+            else {
+                symbol = 0xFFFF & lut_dist_res;
+                let temp_cnt:u32 = lut_dist_res >> 16;
+                ts.bitbuf = ts.bitbuf >> temp_cnt;
+                ts.bitcnt = ts.bitcnt - temp_cnt;
             }
             // get and check distance 
             
