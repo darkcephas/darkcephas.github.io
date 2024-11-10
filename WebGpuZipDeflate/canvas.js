@@ -62,7 +62,7 @@ async function saveDataToDisk() {
 
 
 async function loadShaderFromDisk() {
-  const f = await fetch('shader_lut.rs');
+  const f = await fetch('shader_lut.wgsl');
   console.log(f);
   const str_file = await f.blob();
   const array_buff = await str_file.arrayBuffer();
