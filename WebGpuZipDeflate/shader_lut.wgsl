@@ -48,6 +48,7 @@ var<workgroup> debug_counter:atomic<u32>;
 var<workgroup> ws : CommonData;
 
 
+
 const ERROR_OUTPUT_OVERFLOW = 2;
 const ERROR_NO_MATCH_COMPLEMENT = 3;
 const ERROR_INPUT_OVERFLOW = 4;
@@ -229,7 +230,9 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sy
     return 0;
 }
 
-fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>, ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>, offset:i32,  n:i32) -> i32 
+fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>, 
+        ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>,
+         offset:i32,  n:i32) -> i32 
 {
     var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
 
@@ -505,7 +508,6 @@ fn puff( dictlen:u32,         // length of custom dictionary
                 debug[2]++;
                 dynamic();
                 codes();
-
             }
             else {
                 // type_now == 3, invalid
