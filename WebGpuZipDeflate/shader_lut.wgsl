@@ -251,7 +251,7 @@ fn GenLut()
     for(var i:u32 = 0u ; i < 1024;i++){
         var decode_res:DecodeRtn = decode(&lencnt, &lensym, i, 10);
          if(decode_res.cnt == 0){
-             lenLut[i] = 0xFFFFFFFF;
+             lenLut[i] = 0;
          }
          else{
             lenLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
@@ -261,7 +261,7 @@ fn GenLut()
     for(var i:u32 = 0u ; i < 1024;i++){
         var decode_res:DecodeRtn = decode(&distcnt, &distsym, i, 10);
          if(decode_res.cnt == 0){
-             distLut[i] = 0xFFFFFFFF;
+             distLut[i] = 0;
          }
          else{
             distLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
@@ -344,7 +344,7 @@ fn  codes()
         Ensure16();
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
         var symbol:u32 = 0u;
-        if(lut_len_res == 0xFFFFFFFF){ 
+        if(lut_len_res == 0){ 
             symbol = decode_mutate(&lencnt, &lensym);
         }
         else {
@@ -370,7 +370,7 @@ fn  codes()
              // bits from stream 
             Ensure16();
             var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
-            if(lut_dist_res == 0xFFFFFFFF) {
+            if(lut_dist_res == 0) {
                 symbol = decode_mutate(&distcnt, &distsym);
             }
             else {
@@ -379,11 +379,8 @@ fn  codes()
                 ts.bitbuf = ts.bitbuf >> temp_cnt;
                 ts.bitcnt = ts.bitcnt - temp_cnt;
             }
-            // get and check distance 
-            
             // distance for copy 
             var dist:u32 =  kDists[symbol] + bits(kDext[symbol]);
-
             // copy length bytes from distance bytes back
             CopyBytes(dist, len);
         }
