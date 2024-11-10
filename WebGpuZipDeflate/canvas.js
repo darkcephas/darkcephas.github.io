@@ -14,7 +14,8 @@ var decompressionTextElement;
 var savedataTextElement;
 var radioOriginalElement;
 var radioByteElement;
-
+var radioShaderLUTElement;
+var shaderLUTString;
 const kDebugArraySize = 1024*16;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
@@ -57,6 +58,16 @@ async function saveDataToDisk() {
   link.download = output_file_name;
   link.href = window.URL.createObjectURL(blob);
   link.click();
+}
+
+
+async function loadShaderFromDisk() {
+  const f = await fetch('shader_lut.js');
+  console.log(f);
+  const str_file = await f.blob();
+  const array_buff = await str_file.arrayBuffer();
+  const decoder = new TextDecoder();
+  shaderLUTString = decoder.decode(array_buff);
 }
 
 
@@ -123,6 +134,7 @@ window.onload = async function () {
 
   radioOriginalElement = document.querySelector("#decompress_radio_original");
   radioByteElement = document.querySelector("#decompress_radio_byte");
+  radioShaderLUTElement = document.querySelector("#decompress_radio_lut");
 }
 
 
@@ -243,6 +255,10 @@ async function RunDecompression() {
   }
   if(radioByteElement.checked){
     shader_code = shaderCode_byte;
+  }
+  if(radioShaderLUTElement.checked){
+    await loadShaderFromDisk();
+    shader_code = shaderLUTString;
   }
 
   forceIndexShaderModule = device.createShaderModule({

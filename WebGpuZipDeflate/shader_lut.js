@@ -1,6 +1,3 @@
-"use strict";
-
-const shaderCode_byte = `
 struct CommonData {
       outlen:  u32,       /* available space at out */
      inlen: u32,    /* available input at in */
@@ -552,4 +549,3 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
   FinishByteOut();
   debug[0] = 777;//u32(ts.err);
 }
-`;
