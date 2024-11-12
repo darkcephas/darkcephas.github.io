@@ -68,6 +68,23 @@ const ERROR_BAD_COUNTS = -3;
 const ERROR_REQUIRED_COMPLETE_CODE=-4;
 const ERROR_TOO_MANY_LENGTHS= -6;
 
+// Const data access is very fast ...  no worries!
+const kLens= array<u32,29> ( /* Size base for length codes 257..285 */
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 );
+const kLext= array<u32,29> ( /* Extra bits for length codes 257..285 */
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+    3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 );
+const kDists= array<u32,30> ( /* Offset base for distance codes 0..29 */
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+    8193, 12289, 16385, 24577 );
+const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+    7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+    12, 12, 13, 13 );
+
+
 fn ReportError(error_code:i32){
     if(ts.err==0){
         ts.err = error_code;
@@ -254,7 +271,7 @@ fn GenLut()
              lenLut[i] = 0;
          }
          else{
-            lenLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
+            lenLut[i] =  (decode_res.cnt << 24) | decode_res.symbol;
          }
     }
 
@@ -264,7 +281,9 @@ fn GenLut()
              distLut[i] = 0;
          }
          else{
-            distLut[i] =  (decode_res.cnt << 16) | decode_res.symbol;
+            let dext:u32 = kDext[decode_res.symbol];
+            let dists:u32 = kDists[decode_res.symbol];
+            distLut[i] =  (decode_res.cnt << 24) | (dext<<16) | (dists);
          }
     }
 }
@@ -320,21 +339,6 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
     return left;
 }
 
-// Const data access is very fast ...  no worries!
-const kLens= array<u32,29> ( /* Size base for length codes 257..285 */
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
-    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 );
-const kLext= array<u32,29> ( /* Extra bits for length codes 257..285 */
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
-    3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 );
-const kDists= array<u32,30> ( /* Offset base for distance codes 0..29 */
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
-    257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
-    8193, 12289, 16385, 24577 );
-const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
-    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
-    7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
-    12, 12, 13, 13 );
 
 fn  codes()
 {
@@ -349,10 +353,12 @@ fn  codes()
         }
         else {
             symbol = 0xFFFF & lut_len_res;
-            let temp_cnt:u32 = lut_len_res >> 16;
+            let temp_cnt:u32 = lut_len_res >> 24;
             ts.bitbuf = ts.bitbuf >> temp_cnt;
             ts.bitcnt = ts.bitcnt - temp_cnt;
         }
+
+        
         if (symbol < 256) { // literal: symbol is the byte 
             WriteByteOut(symbol); // write out the literal 
         }
@@ -365,22 +371,24 @@ fn  codes()
                  ReportError(ERROR_RAN_OUT_OF_CODES);       
             }
             // length for copy 
-            var len:u32;           
-            len = kLens[symbol] + bits(kLext[symbol]);
+            var len:u32 = kLens[symbol] + bits(kLext[symbol]);
              // bits from stream 
             Ensure16();
             var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
+            var dist:u32 =  0;
             if(lut_dist_res == 0) {
                 symbol = decode_mutate(&distcnt, &distsym);
+                // distance for copy 
+                dist = kDists[symbol] + bits(kDext[symbol]);
             }
             else {
                 symbol = 0xFFFF & lut_dist_res;
-                let temp_cnt:u32 = lut_dist_res >> 16;
+                let temp_cnt:u32 = lut_dist_res >> 24;
                 ts.bitbuf = ts.bitbuf >> temp_cnt;
-                ts.bitcnt = ts.bitcnt - temp_cnt;
+                ts.bitcnt = ts.bitcnt - temp_cnt;    
+                dist = symbol + bits( (lut_dist_res >> 16) & 0xFF);
             }
-            // distance for copy 
-            var dist:u32 =  kDists[symbol] + bits(kDext[symbol]);
+       
             // copy length bytes from distance bytes back
             CopyBytes(dist, len);
         }
