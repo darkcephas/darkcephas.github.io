@@ -271,7 +271,21 @@ fn GenLut()
              lenLut[i] = 0;
          }
          else{
-            lenLut[i] =  (decode_res.cnt << 24) | decode_res.symbol;
+            lenLut[i] =  (decode_res.cnt << 25) | decode_res.symbol;
+            // is a len/dist copy?
+            if(decode_res.symbol > 256) {
+                var offset:u32 = decode_res.symbol - 257;
+                var num_bits_needed:u32 = kLext[offset];
+                if( (decode_res.cnt + num_bits_needed) > 10 ){
+                     lenLut[i] = 0; // FAILED !
+                }
+                else {
+                    var masked_bits:u32 = i >> decode_res.cnt;
+                    decode_res.cnt += num_bits_needed;
+                    var masked_bits_len:u32 = masked_bits & ((1u << num_bits_needed) - 1u);
+                    lenLut[i] =  (decode_res.cnt << 25) | decode_res.symbol | ((kLens[offset] + masked_bits_len) << 9);
+                }
+            }
          }
     }
 
@@ -281,9 +295,7 @@ fn GenLut()
              distLut[i] = 0;
          }
          else{
-            let dext:u32 = kDext[decode_res.symbol];
-            let dists:u32 = kDists[decode_res.symbol];
-            distLut[i] =  (decode_res.cnt << 24) | (dext<<16) | (dists);
+            distLut[i] = (decode_res.cnt << 24)  | ( kDists[decode_res.symbol]<< 8) | kDext[decode_res.symbol] ;
          }
     }
 }
@@ -347,50 +359,75 @@ fn  codes()
         // bits from stream 
         Ensure16();
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-        var symbol:u32 = 0u;
-        if(lut_len_res == 0){ 
-            symbol = decode_mutate(&lencnt, &lensym);
-        }
-        else {
-            symbol = 0xFFFF & lut_len_res;
-            let temp_cnt:u32 = lut_len_res >> 24;
-            ts.bitbuf = ts.bitbuf >> temp_cnt;
-            ts.bitcnt = ts.bitcnt - temp_cnt;
-        }
-
         
-        if (symbol < 256) { // literal: symbol is the byte 
-            WriteByteOut(symbol); // write out the literal 
-        }
-        else if (symbol == 256){  // end of block symbol 
-          return;
-        } 
-        else if (symbol > 256) {     
-            symbol -= 257;  // length and distance codes get and compute length 
-            if (symbol >= 29) {
-                 ReportError(ERROR_RAN_OUT_OF_CODES);       
+        debug[20]++;
+        if(lut_len_res == 0){ 
+              debug[21]++;
+            var symbol:u32 = decode_mutate(&lencnt, &lensym);
+            if (symbol < 256) { // literal: symbol is the byte 
+                WriteByteOut(symbol); // write out the literal 
             }
-            // length for copy 
-            var len:u32 = kLens[symbol] + bits(kLext[symbol]);
-             // bits from stream 
-            Ensure16();
-            var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
-            var dist:u32 =  0;
-            if(lut_dist_res == 0) {
+            else if (symbol == 256){  // end of block symbol 
+                return;
+            } 
+            else if (symbol > 256) {     
+                symbol -= 257;  // length and distance codes get and compute length 
+                if (symbol >= 29) {
+                    ReportError(ERROR_RAN_OUT_OF_CODES);       
+                }
+                var len:u32 = kLens[symbol] + bits(kLext[symbol]);
+
                 symbol = decode_mutate(&distcnt, &distsym);
                 // distance for copy 
-                dist = kDists[symbol] + bits(kDext[symbol]);
+                var dist:u32 = kDists[symbol] + bits(kDext[symbol]);
+
+                // copy length bytes from distance bytes back
+                CopyBytes(dist, len);
             }
-            else {
-                symbol = 0xFFFF & lut_dist_res;
-                let temp_cnt:u32 = lut_dist_res >> 24;
-                ts.bitbuf = ts.bitbuf >> temp_cnt;
-                ts.bitcnt = ts.bitcnt - temp_cnt;    
-                dist = symbol + bits( (lut_dist_res >> 16) & 0xFF);
+        }
+        else {
+            
+            var symbol:u32 = 0x1FF & lut_len_res;
+            let temp_cnt:u32 = lut_len_res >> 25; 
+            ts.bitbuf = ts.bitbuf >> temp_cnt;
+            ts.bitcnt = ts.bitcnt - temp_cnt;
+
+            if (symbol < 256) { // literal: symbol is the byte 
+                WriteByteOut(symbol); // write out the literal 
             }
-       
-            // copy length bytes from distance bytes back
-            CopyBytes(dist, len);
+            else if (symbol == 256){  // end of block symbol 
+                return;
+            } 
+            else if (symbol > 256) {     
+                symbol -= 257;  // length and distance codes get and compute length 
+                if (symbol >= 29) {
+                    ReportError(ERROR_RAN_OUT_OF_CODES);       
+                }
+
+                let len:u32 = (lut_len_res >> 9) & 0xFFFF;
+                debug[20+len]++;
+                // bits from stream 
+                Ensure16();
+                var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
+                var dist:u32 =  0;
+                if(lut_dist_res == 0) {
+                    symbol = decode_mutate(&distcnt, &distsym);
+                    // distance for copy 
+                    dist = kDists[symbol] + bits(kDext[symbol]);
+                }
+                else {
+                    let temp_cnt:u32 = lut_dist_res >> 24;
+                    ts.bitbuf = ts.bitbuf >> temp_cnt;
+                    ts.bitcnt = ts.bitcnt - temp_cnt;    
+                    let dist_kdist:u32 = (lut_dist_res >> 8) & 0xFFFF;
+                    let dist_kdext:u32 = (lut_dist_res & 0xFF);
+                    dist = dist_kdist + bits(dist_kdext);
+                }
+        
+                // copy length bytes from distance bytes back
+                CopyBytes(dist, len);
+            }
+
         }
 
         if(ts.err != 0){      
