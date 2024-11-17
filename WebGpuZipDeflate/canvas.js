@@ -426,7 +426,7 @@ async function RunDecompression() {
   }
   let uncompressed_size_mb = uncompressed_size/1000000;
   if (crc_test != crc_file) {
-    setFileDecompressedError("CRC does not match original!");
+    setFileDecompressedError("CRC does not match original!  "  + time_in_seconds.toFixed(4) + " s" + " as " + (uncompressed_size_mb/time_in_seconds).toFixed(2) + " Mb/s");
     return;
   }
   setFileDecompressed("CRC match. Decode gpu time= " + time_in_seconds.toFixed(4) + " s" + " as " + (uncompressed_size_mb/time_in_seconds).toFixed(2) + " Mb/s");

@@ -358,11 +358,9 @@ fn  codes()
     while(true) {
         // bits from stream 
         Ensure16();
+
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-        
-        debug[20]++;
         if(lut_len_res == 0){ 
-              debug[21]++;
             var symbol:u32 = decode_mutate(&lencnt, &lensym);
             if (symbol < 256) { // literal: symbol is the byte 
                 WriteByteOut(symbol); // write out the literal 
@@ -405,7 +403,7 @@ fn  codes()
                 }
 
                 let len:u32 = (lut_len_res >> 9) & 0xFFFF;
-                debug[20+len]++;
+              
                 // bits from stream 
                 Ensure16();
                 var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
@@ -656,5 +654,6 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
    
   puff(0,unidata.outlen, unidata.inlen);
   FinishByteOut();
-  debug[0] = 777;//u32(ts.err);
+  debug[0] = atomicLoad(&debug_counter);//u32(ts.err);
+  
 }
