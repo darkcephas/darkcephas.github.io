@@ -570,7 +570,7 @@ fn puff( dictlen:u32,         // length of custom dictionary
     -> i32
 {
    
-    ts.err=0;                    /* return value */
+    ts.err = 0;                    /* return value */
 
     /* initialize output state */
     ws.outlen = destlen;                /* ignored if dest is NIL */
@@ -587,13 +587,11 @@ fn puff( dictlen:u32,         // length of custom dictionary
     ts.writebufcnt = 0;
 
 
-    /* process blocks until last block or error */
-    var last:u32 =0;             /* block information */
     while(true) {
         if(ts.err != 0){
             break;
         }
-        last = bits(1);         /* one if last block */
+        var last:u32 = bits(1);         /* one if last block */
         var type_now:u32 = bits(2);         /* block type_now 0..3 */
         if (type_now == 0) {
          debug[3]++;
@@ -629,27 +627,19 @@ fn puff( dictlen:u32,         // length of custom dictionary
     } 
     
 
-    /* update the lengths and return */
+
     if (ts.err <= 0) {
+         // update the lengths and return 
        // *destlen = ts.outcnt - dictlen;
         //*sourcelen = ts.incnt;
     }
     return ts.err;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(1)
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-  if(local_invocation_index != 0)
-  {
-    if(local_invocation_index == 63){
-        for(var i =0;i <1;i++){
-            atomicAdd(&debug_counter,1);
-        }
-    }
-    return;
-  }
    
   puff(0,unidata.outlen, unidata.inlen);
   FinishByteOut();
