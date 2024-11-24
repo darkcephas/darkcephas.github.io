@@ -411,7 +411,7 @@ async function RunDecompression() {
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
 
-  //console.log(inflated_bytes);
+  console.log(inflated_bytes);
 
   {
     await stagingBufferDebug.mapAsync(

@@ -96,10 +96,6 @@ fn ReportError(error_code:i32){
 
 fn  ReadByteIn() -> u32
 {
-    if (ts.incnt + 1 > ws.inlen) {
-        ReportError(ERROR_INPUT_OVERFLOW);
-    }
-
     if(ts.incnt % 4 == 0){
        // read 4 bytes in
        ts.readbufbytes = in[ts.incnt/4];
@@ -168,7 +164,7 @@ fn CopyBytes( dist:u32, len:u32)
 fn Ensure16( ) 
 {
     // For some reason there are bugs at 16. Likely signed arithmetic
-    if (ts.bitcnt < 15) {
+    if (ts.bitcnt <= 16) {
         var val :u32 = ts.bitbuf;
         val |= ReadByteIn() << ts.bitcnt;  /* load eight bits */
         val |= ReadByteIn() << (ts.bitcnt+8);  /* load eight bits */
