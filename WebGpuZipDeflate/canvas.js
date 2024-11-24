@@ -15,7 +15,7 @@ var savedataTextElement;
 var radioOriginalElement;
 var radioByteElement;
 var radioShaderLUTElement;
-var shaderLUTString;
+var radioShaderPipelineElement;
 const kDebugArraySize = 1024*16;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
@@ -61,13 +61,13 @@ async function saveDataToDisk() {
 }
 
 
-async function loadShaderFromDisk() {
-  const f = await fetch('shader_lut.wgsl');
+async function loadShaderFromDisk(shader_name) {
+  const f = await fetch(shader_name);
   console.log(f);
   const str_file = await f.blob();
   const array_buff = await str_file.arrayBuffer();
   const decoder = new TextDecoder();
-  shaderLUTString = decoder.decode(array_buff);
+  return decoder.decode(array_buff);
 }
 
 
@@ -135,6 +135,7 @@ window.onload = async function () {
   radioOriginalElement = document.querySelector("#decompress_radio_original");
   radioByteElement = document.querySelector("#decompress_radio_byte");
   radioShaderLUTElement = document.querySelector("#decompress_radio_lut");
+  radioShaderPipelineElement = document.querySelector("#decompress_radio_pipeline");
 }
 
 
@@ -257,8 +258,10 @@ async function RunDecompression() {
     shader_code = shaderCode_byte;
   }
   if(radioShaderLUTElement.checked){
-    await loadShaderFromDisk();
-    shader_code = shaderLUTString;
+    shader_code =  await loadShaderFromDisk('shader_lut.wgsl');
+  }
+  if(radioShaderPipelineElement.checked){
+    shader_code =  await loadShaderFromDisk('shader_pipeline.wgsl');
   }
 
   forceIndexShaderModule = device.createShaderModule({
