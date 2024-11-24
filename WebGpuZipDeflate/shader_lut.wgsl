@@ -59,6 +59,7 @@ const ERROR_OUTPUT_OVERFLOW = 2;
 const ERROR_NO_MATCH_COMPLEMENT = 3;
 const ERROR_INPUT_OVERFLOW = 4;
 const ERROR_INPUT_BITS_OVERFLOW = 5;
+const ERROR_STORE_NOT_SUPPORTED = 7;
 const ERROR_RAN_OUT_OF_CODES = -10;
 const ERROR_INCOMPLETE_CODE_SINGLE = -8;
 const ERROR_NO_END_BLOCK_CODE = -9;
@@ -83,6 +84,8 @@ const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
     7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
     12, 12, 13, 13 );
+
+var<private> debug_idx:u32 = 20;
 
 
 fn ReportError(error_code:i32){
@@ -150,7 +153,6 @@ fn WriteByteOut( val:u32)
     ts.outcnt++;
 }
 
-var<private> debug_idx:u32 = 20;
 
 fn CopyBytes( dist:u32, len:u32) 
 {
@@ -192,23 +194,25 @@ fn bits( need:u32) ->u32
 
 fn  stored() 
 {
+     ReportError(ERROR_STORE_NOT_SUPPORTED);   
+     return;
+
     // discard leftover bits from current byte (assumes ts.bitcnt < 8) 
-    ts.bitbuf = 0;
-    ts.bitcnt = 0;
+    //ts.bitbuf = 0;
+    //ts.bitcnt = 0;
 
     // get length and check against its one's complement 
     // length of stored block 
-    var len :u32 = ReadByteIn() | (ReadByteIn() << 8);
-    if( ReadByteIn() != (~len & 0xff) ||
-        ReadByteIn() != ((~len >> 8) & 0xff)) {
-        ReportError(ERROR_NO_MATCH_COMPLEMENT);  
-    }
-
-    while (len !=0) {
-        len--;
-        var val:u32 = ReadByteIn();
-        WriteByteOut(val);
-    }
+    //var len :u32 = ReadByteIn() | (ReadByteIn() << 8);
+    //if( ReadByteIn() != (~len & 0xff) ||
+   //     ReadByteIn() != ((~len >> 8) & 0xff)) {
+   //     ReportError(ERROR_NO_MATCH_COMPLEMENT);  
+   // }
+    //while (len !=0) {
+      //  len--;
+       // var val:u32 = ReadByteIn();
+      // WriteByteOut(val);
+    //}
 }
 
 struct DecodeRtn {
