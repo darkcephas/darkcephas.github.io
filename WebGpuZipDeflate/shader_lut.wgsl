@@ -94,7 +94,7 @@ fn ReportError(error_code:i32){
     }
 }
 
-fn  ReadByteIn() -> u32
+fn  Read16In() -> u32
 {
     if(ts.incnt % 4 == 0){
        // read 4 bytes in
@@ -103,9 +103,9 @@ fn  ReadByteIn() -> u32
     var val:u32 = ts.readbufbytes;
 
     var sub_index:u32 = ts.incnt % 4;
-    val = (val >> (8 * sub_index)) & 0xff;
+    val = (val >> (8 * sub_index)) & 0xffff;
 
-    ts.incnt++;
+    ts.incnt+=2;
     return val;
 }
 
@@ -166,8 +166,7 @@ fn Ensure16( )
     // For some reason there are bugs at 16. Likely signed arithmetic
     if (ts.bitcnt <= 16) {
         var val :u32 = ts.bitbuf;
-        val |= ReadByteIn() << ts.bitcnt;  /* load eight bits */
-        val |= ReadByteIn() << (ts.bitcnt+8);  /* load eight bits */
+        val |= Read16In() << ts.bitcnt;  // load 16 bits
         ts.bitcnt += 16;
         ts.bitbuf = val;
     }
@@ -393,8 +392,8 @@ fn  codes()
             if (symbol < 256) { // literal: symbol is the byte 
                 WriteByteOut(symbol); // write out the literal 
             }
-            else if (symbol == 256){  // end of block symbol 
-                return;
+            else if (symbol == 256){ 
+                return; // end of block symbol 
             } 
             else if (symbol > 256) {     
                 symbol -= 257;  // length and distance codes get and compute length 
