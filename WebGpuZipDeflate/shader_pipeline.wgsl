@@ -41,10 +41,17 @@ var<workgroup>  distsym:array<u32, FIXLCODES>;
 var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
+// Stream out ring buffer.
+var<workgroup> decompress_ring:array<atomic<u32>, 256>;
+var<workgroup> decompress_next:atomic<u32>;
+var<workgroup> write_next:atomic<u32>;
+
 //var<workgroup> lenLutMiss:array<u32, FIXLCODES>;
 //var<workgroup> distLutMiss:array<u32, FIXLCODES>;
 
 var<workgroup> debug_counter:atomic<u32>;
+
+var<workgroup> decompress_done:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<u32>;
@@ -131,6 +138,13 @@ fn FinishByteOut()
     }
 }
 
+fn StreamWriteByteOut( val:u32)
+{
+    var next_store = atomicLoad(&decompress_next) & 0xFF;
+    atomicStore(&decompress_ring[next_store], val);
+    atomicAdd(&decompress_next, 1);
+}
+
 fn WriteByteOut( val:u32)
 {
     var  sub_index:u32 = ts.outcnt % 4;
@@ -147,6 +161,16 @@ fn WriteByteOut( val:u32)
         }
     }
     ts.outcnt++;
+}
+
+
+fn StreamCopyBytes( dist:u32, len:u32) 
+{
+    var next_store = atomicLoad(&decompress_next) & 0xFF;
+    var val = (1<<31) | (len << 16) | dist;
+    atomicStore(&decompress_ring[next_store], val);
+    atomicAdd(&decompress_next, 1);
+    return;
 }
 
 
@@ -355,6 +379,10 @@ fn  codes()
 {
     // decode literals and length/distance pairs 
     while(true) {
+
+        while(atomicLoad(&decompress_next)-atomicLoad(&write_next) > 64 ){
+            atomicStore(&decompress_next, atomicLoad(&decompress_next));
+        }
         // bits from stream 
         Ensure16();
 
@@ -362,7 +390,7 @@ fn  codes()
         if(lut_len_res == 0){ 
             var symbol:u32 = decode_mutate(&lencnt, &lensym);
             if (symbol < 256) { // literal: symbol is the byte 
-                WriteByteOut(symbol); // write out the literal 
+                StreamWriteByteOut(symbol); // write out the literal 
             }
             else if (symbol == 256){  // end of block symbol 
                 return;
@@ -379,7 +407,7 @@ fn  codes()
                 var dist:u32 = kDists[symbol] + bits(kDext[symbol]);
 
                 // copy length bytes from distance bytes back
-                CopyBytes(dist, len);
+                StreamCopyBytes(dist, len);
             }
         }
         else {
@@ -390,7 +418,7 @@ fn  codes()
             ts.bitcnt = ts.bitcnt - temp_cnt;
 
             if (symbol < 256) { // literal: symbol is the byte 
-                WriteByteOut(symbol); // write out the literal 
+                StreamWriteByteOut(symbol); // write out the literal 
             }
             else if (symbol == 256){ 
                 return; // end of block symbol 
@@ -422,7 +450,7 @@ fn  codes()
                 }
         
                 // copy length bytes from distance bytes back
-                CopyBytes(dist, len);
+                StreamCopyBytes(dist, len);
             }
 
         }
@@ -636,13 +664,40 @@ fn puff( dictlen:u32,         // length of custom dictionary
     return ts.err;
 }
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(64)
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
    
+  if(local_invocation_index != 0)
+  {
+    if(local_invocation_index == 63){
+        while( atomicLoad(&decompress_done) == 0  ){
+             // atomicAdd(&debug_counter,1);
+              while(atomicLoad(&decompress_next) > atomicLoad(&write_next)){
+                var next_write = atomicLoad(&write_next) & 0xFF;
+                var data_to_write = atomicLoad(&decompress_ring[next_write]);
+                if( (data_to_write & (1<<31)) !=0 ){
+                    var dist = data_to_write & 0xFFFF;
+                    var len = (data_to_write>>16) & 0x7FFF;
+                    CopyBytes(dist, len);
+                }
+                else
+                {
+                    WriteByteOut(data_to_write);
+                }
+
+                atomicAdd(&write_next,1);
+              }
+        }  
+        FinishByteOut();
+    }
+    return; 
+  }
+   
+
   puff(0,unidata.outlen, unidata.inlen);
-  FinishByteOut();
-  debug[0] = 888;//atomicLoad(&debug_counter);//u32(ts.err);
-  
+ 
+  debug[0] = atomicLoad(&debug_counter);//u32(ts.err);
+  atomicStore(&decompress_done , 1);
 }
