@@ -388,6 +388,7 @@ fn  codes()
 
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
         if(lut_len_res == 0){ 
+            // SLOW PATH none LUT
             var symbol:u32 = decode_mutate(&lencnt, &lensym);
             if (symbol < 256) { // literal: symbol is the byte 
                 StreamWriteByteOut(symbol); // write out the literal 
