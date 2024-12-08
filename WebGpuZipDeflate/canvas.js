@@ -16,6 +16,7 @@ var radioOriginalElement;
 var radioByteElement;
 var radioShaderLUTElement;
 var radioShaderPipelineElement;
+var radioShaderParallelElement;
 const kDebugArraySize = 1024*16;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
@@ -136,6 +137,7 @@ window.onload = async function () {
   radioByteElement = document.querySelector("#decompress_radio_byte");
   radioShaderLUTElement = document.querySelector("#decompress_radio_lut");
   radioShaderPipelineElement = document.querySelector("#decompress_radio_pipeline");
+  radioShaderParallelElement = document.querySelector("#decompress_radio_parallel");
 }
 
 
@@ -262,6 +264,10 @@ async function RunDecompression() {
   }
   if(radioShaderPipelineElement.checked){
     shader_code =  await loadShaderFromDisk('shader_pipeline.wgsl');
+  }
+
+  if(radioShaderParallelElement.checked){
+    shader_code =  await loadShaderFromDisk('shader_parallel.wgsl');
   }
 
   forceIndexShaderModule = device.createShaderModule({
