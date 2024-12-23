@@ -92,8 +92,8 @@ fn ReportError(error_code:i32){
 
 // prepare 32 bits of buffered data at bit index ts.inct
 fn  Read32() {
-
     var reverse_offset  = ts.incnt % 32;
+    // The forward offset of zero causes issues in the shift... not sure why
     if(reverse_offset == 0){
         ts.bitbuf = in[ts.incnt/32];
         return;
@@ -107,8 +107,9 @@ fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
     var offset:u32 = ts.outcnt - rev_offset_in_bytes;
     var sub_index:u32 = offset % 4;
     var  val:u32 = atomicLoad( &out[offset / 4]);
-    val = (val >> (8 * sub_index)) & 0xff;
-    return val;
+    //var temp = extractBits(val, (8 * sub_index), 8);
+    var temp = (val >> (8 * sub_index)) & 0xff;
+    return temp;
 }
 
 fn StreamWriteByteOut( val:u32)
@@ -415,7 +416,7 @@ fn  codes()
             }
 
         }
-
+        
         if(ts.err != 0){      
             return;
         }
