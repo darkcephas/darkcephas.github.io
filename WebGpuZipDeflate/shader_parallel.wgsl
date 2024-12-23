@@ -6,20 +6,9 @@ struct CommonData {
 struct ThreadState {
      outcnt: u32,       /* bytes written to out so far */
     /* input state */
-     incnt:u32,        /* bytes read so far */
+     incnt:u32,        /* bits read so far */
      bitbuf:u32,                 /* bit buffer */
-     bitcnt:u32,                 /* number of bits in bit buffer */
      err:i32,
-
-     // 32 bits to be read as byte
-     readbufbytes:u32, 
-     // read buffer num bytes
-     readbufcnt:u32,
-     
-     // 32 bits to be write as byte
-     writebufbytes:u32, 
-     // read buffer num bytes
-     writebufcnt:u32 
 } ;
 
 var<private> ts : ThreadState;
@@ -54,7 +43,7 @@ var<workgroup> debug_counter:atomic<u32>;
 var<workgroup> decompress_done:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
-@group(0) @binding(1) var<storage,read_write> out: array<u32>;
+@group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
 @group(0) @binding(2) var<uniform> unidata: CommonData;
 @group(0) @binding(3) var<storage,read_write> debug: array<u32>;
 
@@ -101,41 +90,25 @@ fn ReportError(error_code:i32){
     }
 }
 
-fn  Read16In() -> u32
-{
-    if(ts.incnt % 4 == 0){
-       // read 4 bytes in
-       ts.readbufbytes = in[ts.incnt/4];
+// prepare 32 bits of buffered data at bit index ts.inct
+fn  Read32() {
+
+    var reverse_offset  = ts.incnt % 32;
+    if(reverse_offset == 0){
+        ts.bitbuf = in[ts.incnt/32];
+        return;
     }
-    var val:u32 = ts.readbufbytes;
-
-    var sub_index:u32 = ts.incnt % 4;
-    val = (val >> (8 * sub_index)) & 0xffff;
-
-    ts.incnt+=2;
-    return val;
+    var forward_offset = 32 - reverse_offset;
+    ts.bitbuf = (in[ts.incnt/32] >> reverse_offset) | (in[(ts.incnt/32)+1] << forward_offset);
 }
 
 fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 {
     var offset:u32 = ts.outcnt - rev_offset_in_bytes;
     var sub_index:u32 = offset % 4;
-    var  val:u32 = out[offset / 4];
-    if( (ts.outcnt%4) >= rev_offset_in_bytes  ){
-        val = ts.writebufbytes;
-    }
+    var  val:u32 = atomicLoad( &out[offset / 4]);
     val = (val >> (8 * sub_index)) & 0xff;
     return val;
-}
-
-fn FinishByteOut()
-{
-    var  sub_index:u32 = ts.outcnt % 4;
-    if(sub_index != 0){
-        // Write it out
-        out[ts.outcnt/4] = ts.writebufbytes;
-        ts.writebufbytes = 0;
-    }
 }
 
 fn StreamWriteByteOut( val:u32)
@@ -145,21 +118,17 @@ fn StreamWriteByteOut( val:u32)
     atomicAdd(&decompress_next, 1);
 }
 
-fn WriteByteOut( val:u32)
+fn WriteByteOut(val:u32)
 {
-    var  sub_index:u32 = ts.outcnt % 4;
-    ts.writebufbytes = ts.writebufbytes | ( val << (sub_index * 8u));
+    var sub_index:u32 = ts.outcnt % 4;
+    // this only works because there is zero in the original byte
+    atomicOr(&out[ts.outcnt/4],   val << (sub_index * 8u));
 
-    // Is last byte of dword
-    if(sub_index == 3){
-        // 0,1,2,3 bytes have written. full 32 bits. Write it out
-        out[ts.outcnt/4] = ts.writebufbytes;
-        ts.writebufbytes = 0;
-        if (ts.outcnt + 1 > ws.outlen) {
-            ReportError(ERROR_OUTPUT_OVERFLOW);
-            // webgpu handles any buffer out of bounds!
-        }
+    if (ts.outcnt + 1 > ws.outlen) {
+        ReportError(ERROR_OUTPUT_OVERFLOW);
+        // webgpu handles any buffer out of bounds!
     }
+
     ts.outcnt++;
 }
 
@@ -185,30 +154,23 @@ fn CopyBytes( dist:u32, len:u32)
     return;
 }
 
-fn Ensure16( ) 
+fn bits_local( need:u32 ) -> u32
 {
-    // For some reason there are bugs at 16. Likely signed arithmetic
-    if (ts.bitcnt <= 16) {
-        var val :u32 = ts.bitbuf;
-        val |= Read16In() << ts.bitcnt;  // load 16 bits
-        ts.bitcnt += 16;
-        ts.bitbuf = val;
-    }
+    // return need bits, zeroing the bits above that
+    var out_val =  u32(ts.bitbuf & ((1u << need) - 1u));
+    ts.bitbuf = ts.bitbuf >> need;
+    ts.incnt += need;
+    return out_val;
 }
 
-fn bits( need:u32) ->u32
+
+fn bits( need:u32 ) -> u32
 {
-    // bit accumulator */
-    // load at least need bits into val
-    Ensure16();
-
-    // drop need bits and update buffer, always zero to seven bits left
-    var val:u32 = ts.bitbuf;
-    ts.bitbuf = ts.bitbuf >> need;
-    ts.bitcnt -= need;
-
+    Read32();
+    ts.incnt += need;
     // return need bits, zeroing the bits above that
-    return u32(val & ((1u << need) - 1u));
+    var bits_out =  u32(ts.bitbuf & ((1u << need) - 1u));
+    return bits_out;
 }
 
 fn  stored() 
@@ -277,12 +239,12 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sy
 
 fn decode_mutate(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>) -> u32
 {
-    var decode_res:DecodeRtn = decode(ptr_array_cnt, ptr_array_sym, ts.bitbuf, ts.bitcnt);
+    var decode_res:DecodeRtn = decode(ptr_array_cnt, ptr_array_sym, ts.bitbuf, 32);
     if(decode_res.cnt == 0){
         ReportError(ERROR_RAN_OUT_OF_CODES);
     }
     ts.bitbuf = ts.bitbuf >> decode_res.cnt;
-    ts.bitcnt = ts.bitcnt - decode_res.cnt;
+    ts.incnt = ts.incnt + decode_res.cnt;
     return decode_res.symbol;
 }
 
@@ -379,17 +341,18 @@ fn  codes()
 {
     // decode literals and length/distance pairs 
     while(true) {
-
         while(atomicLoad(&decompress_next)-atomicLoad(&write_next) > 64 ){
             atomicStore(&decompress_next, atomicLoad(&decompress_next));
         }
         // bits from stream 
-        Ensure16();
+        Read32();
 
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-        if(lut_len_res == 0){ 
+        if (true)//(lut_len_res == 0)
+        { 
             // SLOW PATH none LUT
             var symbol:u32 = decode_mutate(&lencnt, &lensym);
+
             if (symbol < 256) { // literal: symbol is the byte 
                 StreamWriteByteOut(symbol); // write out the literal 
             }
@@ -401,12 +364,10 @@ fn  codes()
                 if (symbol >= 29) {
                     ReportError(ERROR_RAN_OUT_OF_CODES);       
                 }
-                var len:u32 = kLens[symbol] + bits(kLext[symbol]);
-
+                var len:u32 = kLens[symbol] + bits_local(kLext[symbol]);
                 symbol = decode_mutate(&distcnt, &distsym);
                 // distance for copy 
-                var dist:u32 = kDists[symbol] + bits(kDext[symbol]);
-
+                var dist:u32 = kDists[symbol] + bits_local(kDext[symbol]);
                 // copy length bytes from distance bytes back
                 StreamCopyBytes(dist, len);
             }
@@ -416,7 +377,7 @@ fn  codes()
             var symbol:u32 = 0x1FF & lut_len_res;
             let temp_cnt:u32 = lut_len_res >> 25; 
             ts.bitbuf = ts.bitbuf >> temp_cnt;
-            ts.bitcnt = ts.bitcnt - temp_cnt;
+
 
             if (symbol < 256) { // literal: symbol is the byte 
                 StreamWriteByteOut(symbol); // write out the literal 
@@ -431,9 +392,7 @@ fn  codes()
                 }
 
                 let len:u32 = (lut_len_res >> 9) & 0xFFFF;
-              
-                // bits from stream 
-                Ensure16();
+
                 var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
                 var dist:u32 =  0;
                 if(lut_dist_res == 0) {
@@ -444,7 +403,6 @@ fn  codes()
                 else {
                     let temp_cnt:u32 = lut_dist_res >> 24;
                     ts.bitbuf = ts.bitbuf >> temp_cnt;
-                    ts.bitcnt = ts.bitcnt - temp_cnt;    
                     let dist_kdist:u32 = (lut_dist_res >> 8) & 0xFFFF;
                     let dist_kdext:u32 = (lut_dist_res & 0xFF);
                     dist = dist_kdist + bits(dist_kdext);
@@ -529,7 +487,7 @@ fn dynamic()
         var symbol:u32;             /* decoded value */
         var len:u32;                /* last length to repeat */
 
-        Ensure16();
+        Read32();
         symbol = decode_mutate(&lencnt, &lensym);
         if (symbol < 0) {
             /* invalid symbol */
@@ -609,21 +567,17 @@ fn puff( dictlen:u32,         // length of custom dictionary
     ws.inlen = sourcelen;
     ts.incnt = 0;
     ts.bitbuf = 0;
-    ts.bitcnt = 0;
-    ts.readbufbytes = 0;
-    ts.readbufcnt  = 0;
-    ts.writebufbytes = 0;
-    ts.writebufcnt = 0;
 
 
     while(true) {
         if(ts.err != 0){
             break;
         }
+        Read32();
         var last:u32 = bits(1);         /* one if last block */
         var type_now:u32 = bits(2);         /* block type_now 0..3 */
         if (type_now == 0) {
-         debug[3]++;
+            debug[3]++;
             stored();
         }
         else
@@ -691,7 +645,7 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
                 atomicAdd(&write_next,1);
               }
         }  
-        FinishByteOut();
+
     }
     return; 
   }
