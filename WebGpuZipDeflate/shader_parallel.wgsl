@@ -348,7 +348,7 @@ fn  codes()
         Read32();
 
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-        if (true)//(lut_len_res == 0)
+        if (lut_len_res == 0)
         { 
             // SLOW PATH none LUT
             var symbol:u32 = decode_mutate(&lencnt, &lensym);
@@ -377,7 +377,7 @@ fn  codes()
             var symbol:u32 = 0x1FF & lut_len_res;
             let temp_cnt:u32 = lut_len_res >> 25; 
             ts.bitbuf = ts.bitbuf >> temp_cnt;
-
+            ts.incnt  = ts.incnt + temp_cnt;
 
             if (symbol < 256) { // literal: symbol is the byte 
                 StreamWriteByteOut(symbol); // write out the literal 
@@ -395,17 +395,19 @@ fn  codes()
 
                 var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
                 var dist:u32 =  0;
-                if(lut_dist_res == 0) {
+                if(lut_dist_res == 0)
+                 {
                     symbol = decode_mutate(&distcnt, &distsym);
                     // distance for copy 
-                    dist = kDists[symbol] + bits(kDext[symbol]);
+                    dist = kDists[symbol] + bits_local(kDext[symbol]);
                 }
                 else {
                     let temp_cnt:u32 = lut_dist_res >> 24;
                     ts.bitbuf = ts.bitbuf >> temp_cnt;
+                      ts.incnt  = ts.incnt + temp_cnt;
                     let dist_kdist:u32 = (lut_dist_res >> 8) & 0xFFFF;
                     let dist_kdext:u32 = (lut_dist_res & 0xFF);
-                    dist = dist_kdist + bits(dist_kdext);
+                    dist = dist_kdist + bits_local(dist_kdext);
                 }
         
                 // copy length bytes from distance bytes back
