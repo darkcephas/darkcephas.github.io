@@ -21,7 +21,7 @@ const MAXDCODES=30 ;           /* maximum number of distance codes */
 const MAXCODES=(MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
 const FIXLCODES=288;           /* number of fixed literal/length codes */
 
-const WORKGROUP_SIZE = 1;
+const WORKGROUP_SIZE = 32;
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
 var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
@@ -258,9 +258,9 @@ fn decode_mutate(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_a
     return decode_res.symbol;
 }
 
-fn GenLut()
+fn GenLut(local_invocation_index:u32)
 {
-    for(var i:u32 = 0u ; i < 1024;i++){
+    for(var i:u32 = local_invocation_index ; i < 1024;i+= WORKGROUP_SIZE){
         var decode_res:DecodeRtn = decode(&lencnt, &lensym, i, 10);
          if(decode_res.cnt == 0){
              lenLut[i] = 0;
@@ -284,7 +284,7 @@ fn GenLut()
          }
     }
 
-    for(var i:u32 = 0u ; i < 1024;i++){
+    for(var i:u32 = local_invocation_index ; i < 1024;i+=WORKGROUP_SIZE){
         var decode_res:DecodeRtn = decode(&distcnt, &distsym, i, 10);
          if(decode_res.cnt == 0){
              distLut[i] = 0;
@@ -347,10 +347,11 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 }
 
 
-fn codes()
+fn codes(local_invocation_index:u32)
 {
+    ts.incnt = atomicLoad(&g_incnt);
+    ts.incnt += local_invocation_index;
     // decode literals and length/distance pairs 
-    atomicStore(&g_incnt, ts.incnt);
     while(true) {
         // bits from stream 
         Read32();
@@ -595,9 +596,12 @@ fn dynamic()
 }
 
 
+var<workgroup> last_block:u32;
+
 fn puff( dictlen:u32,         // length of custom dictionary
     destlen:u32,        /* amount of output space */
-    sourcelen:u32)      /* amount of input available */
+    sourcelen:u32, /* amount of input available */
+    local_invocation_index:u32)     
     -> i32
 {
    
@@ -614,41 +618,55 @@ fn puff( dictlen:u32,         // length of custom dictionary
 
 
     while(true) {
-        if(ts.err != 0){
-            break;
-        }
-        Read32();
-        var last:u32 = bits(1);         /* one if last block */
-        var type_now:u32 = bits(2);         /* block type_now 0..3 */
-        if (type_now == 0) {
-            debug[3]++;
-            stored();
-        }
-        else
-        {
-            if (type_now == 1) {
-                debug[1]++;
-                fixed();
-                GenLut();
-                codes();
+        //if(ts.err != 0){
+       //     break;
+       // }
+
+        // Only the first invocation does all the init table work 
+        if(local_invocation_index == 0){
+            Read32();
+            var last:u32 = bits(1);         /* one if last block */
+            var type_now:u32 = bits(2);         /* block type_now 0..3 */
+            var is_store = false;
+            if (type_now == 0) {
+                debug[3]++;
+                stored();
+                is_store = true; // not supported anyway
             }
-            else if (type_now == 2) {
-                debug[2]++;
-                dynamic();
-                GenLut();
-                codes();
+            else
+            {
+                if (type_now == 1) {
+                    debug[1]++;
+                    fixed();
+                
+                }
+                else if (type_now == 2) {
+                    debug[2]++;
+                    dynamic();
+                }
+                else {
+                    // type_now == 3, invalid
+                    ts.err = -1;
+                }
             }
-            else {
-                // type_now == 3, invalid
-                ts.err = -1;
-            }
-        }
-          
-        if (ts.err != 0) {
-            break;                  /* return with error */
+
+            last_block =  last;
+            atomicStore(&g_incnt, ts.incnt);
         }
 
-        if(last != 0){
+        if(true){
+            GenLut(local_invocation_index);
+            workgroupBarrier();
+            if(local_invocation_index == 0){
+                codes(local_invocation_index);
+            }
+        }
+        
+       // if (ts.err != 0) {
+       //     break;                  /* return with error */
+       // }
+
+        if(workgroupUniformLoad(&last_block) != 0){
           break;
         }
     } 
@@ -665,5 +683,5 @@ fn puff( dictlen:u32,         // length of custom dictionary
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-  puff(0,unidata.outlen, unidata.inlen);
+  puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
 }
