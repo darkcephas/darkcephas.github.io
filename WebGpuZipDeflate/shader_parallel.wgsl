@@ -9,6 +9,8 @@ struct ThreadState {
      incnt:u32,        /* bits read so far */
      bitbuf:u32,                 /* bit buffer */
      err:i32,
+     decode_to_store:u32, // useful as a type of global
+     decode_len: u32, // 1 if val n if copy
 } ;
 
 var<private> ts : ThreadState;
@@ -19,6 +21,7 @@ const MAXDCODES=30 ;           /* maximum number of distance codes */
 const MAXCODES=(MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
 const FIXLCODES=288;           /* number of fixed literal/length codes */
 
+const WORKGROUP_SIZE = 1;
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
 var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
@@ -31,16 +34,24 @@ var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
 // Stream out ring buffer.
-var<workgroup> decompress_ring:array<atomic<u32>, 256>;
-var<workgroup> decompress_next:atomic<u32>;
-var<workgroup> write_next:atomic<u32>;
+struct RingData {
+    byte_pos:  u32,
+    code: u32,   
+};
 
-//var<workgroup> lenLutMiss:array<u32, FIXLCODES>;
-//var<workgroup> distLutMiss:array<u32, FIXLCODES>;
+const DECODED_RING_SIZE = WORKGROUP_SIZE*2;
+var<workgroup> decoded_ring:array<RingData, DECODED_RING_SIZE>;
+var<workgroup> decode_next:atomic<u32>;
+var<workgroup> decode_read:atomic<u32>;
 
-var<workgroup> debug_counter:atomic<u32>;
+// read encoded stream serializer
+var<workgroup> g_incnt:atomic<u32>;
 
-var<workgroup> decompress_done:atomic<u32>;
+// allocation of bytes to write
+var<workgroup> g_write_tracker:atomic<u32>;
+
+// We do backreference copy so we need to always update what is complete
+var<workgroup> g_write_complete:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
@@ -102,9 +113,9 @@ fn  Read32() {
     ts.bitbuf = (in[ts.incnt/32] >> reverse_offset) | (in[(ts.incnt/32)+1] << forward_offset);
 }
 
-fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
+fn PeekByteOut( rev_offset_in_bytes:u32, byte_loc:u32) -> u32
 {
-    var offset:u32 = ts.outcnt - rev_offset_in_bytes;
+    var offset:u32 = byte_loc - rev_offset_in_bytes;
     var sub_index:u32 = offset % 4;
     var  val:u32 = atomicLoad( &out[offset / 4]);
     //var temp = extractBits(val, (8 * sub_index), 8);
@@ -114,43 +125,41 @@ fn PeekByteOut( rev_offset_in_bytes:u32) -> u32
 
 fn StreamWriteByteOut( val:u32)
 {
-    var next_store = atomicLoad(&decompress_next) & 0xFF;
-    atomicStore(&decompress_ring[next_store], val);
-    atomicAdd(&decompress_next, 1);
+    ts.decode_to_store = val;
+    ts.decode_len = 1;
 }
 
-fn WriteByteOut(val:u32)
+fn WriteByteOut(val:u32, byte_loc:u32)
 {
-    var sub_index:u32 = ts.outcnt % 4;
+    var sub_index:u32 = byte_loc % 4;
     // this only works because there is zero in the original byte
-    atomicOr(&out[ts.outcnt/4],   val << (sub_index * 8u));
+    atomicOr(&out[byte_loc/4],   val << (sub_index * 8u));
 
-    if (ts.outcnt + 1 > ws.outlen) {
+    if (byte_loc + 1 > ws.outlen) {
         ReportError(ERROR_OUTPUT_OVERFLOW);
         // webgpu handles any buffer out of bounds!
     }
-
-    ts.outcnt++;
 }
 
 
 fn StreamCopyBytes( dist:u32, len:u32) 
 {
-    var next_store = atomicLoad(&decompress_next) & 0xFF;
     var val = (1<<31) | (len << 16) | dist;
-    atomicStore(&decompress_ring[next_store], val);
-    atomicAdd(&decompress_next, 1);
+    ts.decode_to_store = val;
+    ts.decode_len = len;
     return;
 }
 
 
-fn CopyBytes( dist:u32, len:u32) 
+fn CopyBytes( dist:u32, len:u32,  byte_start:u32) 
 {
     var len_tmp = len;
+    var counter_local:u32 = 0;
     while (len_tmp != 0) {
         len_tmp--;
-        var val:u32 = PeekByteOut(dist);
-        WriteByteOut(val);
+        var val:u32 = PeekByteOut(dist, byte_start+ counter_local);
+        WriteByteOut(val, byte_start+ counter_local);
+        counter_local++;
     }
     return;
 }
@@ -338,16 +347,14 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 }
 
 
-fn  codes()
+fn codes()
 {
     // decode literals and length/distance pairs 
+    atomicStore(&g_incnt, ts.incnt);
     while(true) {
-        while(atomicLoad(&decompress_next)-atomicLoad(&write_next) > 64 ){
-            atomicStore(&decompress_next, atomicLoad(&decompress_next));
-        }
         // bits from stream 
         Read32();
-
+        let start_bit_offset = ts.incnt;
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
         if (lut_len_res == 0)
         { 
@@ -416,10 +423,44 @@ fn  codes()
             }
 
         }
-        
-        if(ts.err != 0){      
-            return;
+
+        //if(ts.err != 0){      
+          //  return;
+       // }
+
+        // Either push into decompression queue or confirm failure
+        while(true){
+            var curr_read_incnt = atomicLoad(&g_incnt);
+            if(start_bit_offset == curr_read_incnt ){
+                var old_write_tracker = atomicAdd(&g_write_tracker, ts.decode_len);
+                var decode_next_mod = atomicLoad(&decode_next) % DECODED_RING_SIZE;
+                decoded_ring[decode_next_mod].byte_pos = old_write_tracker;
+                decoded_ring[decode_next_mod].code = ts.decode_to_store;
+                atomicAdd(&decode_next, 1);
+                atomicStore(&g_incnt, ts.incnt);
+                break;
+            }
+            // if(start_bit_offset > curr_read_incnt) // speculative failure
         }
+
+
+        var next_write_mod = atomicLoad(&decode_read)  % DECODED_RING_SIZE;
+        var ring_data = decoded_ring[next_write_mod];
+        atomicAdd(&decode_read,1);
+        var data_to_write = ring_data.code;
+        var byte_pos_start = ring_data.byte_pos;
+        if( (data_to_write & (1<<31)) !=0 ){
+            var dist = data_to_write & 0xFFFF;
+            var len = (data_to_write>>16) & 0x7FFF;
+            CopyBytes(dist, len, byte_pos_start);
+        }
+        else
+        {
+            WriteByteOut(data_to_write, byte_pos_start);
+        }
+
+     
+       
     }
 }
     
@@ -611,8 +652,6 @@ fn puff( dictlen:u32,         // length of custom dictionary
           break;
         }
     } 
-    
-
 
     if (ts.err <= 0) {
          // update the lengths and return 
@@ -622,40 +661,9 @@ fn puff( dictlen:u32,         // length of custom dictionary
     return ts.err;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-   
-  if(local_invocation_index != 0)
-  {
-    if(local_invocation_index == 63){
-        while( atomicLoad(&decompress_done) == 0  ){
-             // atomicAdd(&debug_counter,1);
-              while(atomicLoad(&decompress_next) > atomicLoad(&write_next)){
-                var next_write = atomicLoad(&write_next) & 0xFF;
-                var data_to_write = atomicLoad(&decompress_ring[next_write]);
-                if( (data_to_write & (1<<31)) !=0 ){
-                    var dist = data_to_write & 0xFFFF;
-                    var len = (data_to_write>>16) & 0x7FFF;
-                    CopyBytes(dist, len);
-                }
-                else
-                {
-                    WriteByteOut(data_to_write);
-                }
-
-                atomicAdd(&write_next,1);
-              }
-        }  
-
-    }
-    return; 
-  }
-   
-
   puff(0,unidata.outlen, unidata.inlen);
- 
-  debug[0] = atomicLoad(&debug_counter);//u32(ts.err);
-  atomicStore(&decompress_done , 1);
 }
