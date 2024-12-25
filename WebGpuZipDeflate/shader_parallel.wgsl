@@ -41,8 +41,8 @@ struct RingData {
 
 const DECODED_RING_SIZE = WORKGROUP_SIZE*2;
 var<workgroup> decoded_ring:array<RingData, DECODED_RING_SIZE>;
-var<workgroup> decode_next:atomic<u32>;
-var<workgroup> decode_read:atomic<u32>;
+var<workgroup> decode_head:atomic<u32>;
+var<workgroup> decode_tail:atomic<u32>;
 
 // read encoded stream serializer
 var<workgroup> g_incnt:atomic<u32>;
@@ -94,6 +94,7 @@ const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 
 var<private> debug_idx:u32 = 20;
 
+var<workgroup> atomic_idx:atomic<u32>;
 
 fn ReportError(error_code:i32){
     if(ts.err==0){
@@ -347,16 +348,22 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 }
 
 
+var<workgroup> decode_done:u32;
 fn codes(local_invocation_index:u32)
 {
+    // everyone sets?
+    decode_done = 0;
+    // Each invocation is going to start at staggered offset
     ts.incnt = atomicLoad(&g_incnt);
     ts.incnt += local_invocation_index;
     // decode literals and length/distance pairs 
     while(true) {
+
         // bits from stream 
         Read32();
         let start_bit_offset = ts.incnt;
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
+        var invocation_hit_end_of_block = false;
         if (lut_len_res == 0)
         { 
             // SLOW PATH none LUT
@@ -365,8 +372,9 @@ fn codes(local_invocation_index:u32)
             if (symbol < 256) { // literal: symbol is the byte 
                 StreamWriteByteOut(symbol); // write out the literal 
             }
-            else if (symbol == 256){  // end of block symbol 
-                return;
+            else if (symbol == 256){  
+                // end of block symbol 
+                invocation_hit_end_of_block = true;
             } 
             else if (symbol > 256) {     
                 symbol -= 257;  // length and distance codes get and compute length 
@@ -392,7 +400,8 @@ fn codes(local_invocation_index:u32)
                 StreamWriteByteOut(symbol); // write out the literal 
             }
             else if (symbol == 256){ 
-                return; // end of block symbol 
+                // end of block symbol 
+                invocation_hit_end_of_block = true;
             } 
             else if (symbol > 256) {     
                 symbol -= 257;  // length and distance codes get and compute length 
@@ -430,38 +439,67 @@ fn codes(local_invocation_index:u32)
        // }
 
         // Either push into decompression queue or confirm failure
+
         while(true){
             var curr_read_incnt = atomicLoad(&g_incnt);
             if(start_bit_offset == curr_read_incnt ){
+                if(invocation_hit_end_of_block){
+                    decode_done = ts.incnt;
+                    // All others will be forced to be speculative with this number
+                    atomicStore(&g_incnt, 0xFFFFFFFF);
+                    // This decode has no data but we are done now.
+                    break;
+                }
+
+                // grab an index;
+                var decode_head_mod = atomicAdd(&decode_head, 1) % DECODED_RING_SIZE;
                 var old_write_tracker = atomicAdd(&g_write_tracker, ts.decode_len);
-                var decode_next_mod = atomicLoad(&decode_next) % DECODED_RING_SIZE;
-                decoded_ring[decode_next_mod].byte_pos = old_write_tracker;
-                decoded_ring[decode_next_mod].code = ts.decode_to_store;
-                atomicAdd(&decode_next, 1);
+                decoded_ring[decode_head_mod].byte_pos = old_write_tracker;
+                decoded_ring[decode_head_mod].code = ts.decode_to_store;
                 atomicStore(&g_incnt, ts.incnt);
                 break;
             }
-            // if(start_bit_offset > curr_read_incnt) // speculative failure
+            else if(curr_read_incnt > start_bit_offset) 
+            {
+                // speculative failure
+                break;
+            }
+        }  
+
+        workgroupBarrier();
+        if(local_invocation_index == 0){
+            while(atomicLoad(&decode_tail) != atomicLoad(&decode_head) ){
+                var next_tail_mod = atomicLoad(&decode_tail) % DECODED_RING_SIZE;
+                var ring_data = decoded_ring[next_tail_mod];
+                atomicAdd(&decode_tail,1);
+                var data_to_write = ring_data.code;
+                var byte_pos_start = ring_data.byte_pos;
+                if( (data_to_write & (1<<31)) !=0 ){
+                    var dist = data_to_write & 0xFFFF;
+                    var len = (data_to_write>>16) & 0x7FFF;
+                    CopyBytes(dist, len, byte_pos_start);
+                }
+                else
+                {
+                    WriteByteOut(data_to_write, byte_pos_start);
+                }
+            }
         }
 
 
-        var next_write_mod = atomicLoad(&decode_read)  % DECODED_RING_SIZE;
-        var ring_data = decoded_ring[next_write_mod];
-        atomicAdd(&decode_read,1);
-        var data_to_write = ring_data.code;
-        var byte_pos_start = ring_data.byte_pos;
-        if( (data_to_write & (1<<31)) !=0 ){
-            var dist = data_to_write & 0xFFFF;
-            var len = (data_to_write>>16) & 0x7FFF;
-            CopyBytes(dist, len, byte_pos_start);
-        }
-        else
-        {
-            WriteByteOut(data_to_write, byte_pos_start);
-        }
 
-     
+        workgroupBarrier();
+
+        ts.incnt = atomicLoad(&g_incnt);
+        ts.incnt += local_invocation_index;
        
+        if(workgroupUniformLoad(&decode_done) != 0){
+          atomicStore(&g_incnt, decode_done);
+          ts.incnt = atomicLoad(&g_incnt);
+          ts.incnt += local_invocation_index;
+          workgroupBarrier();
+          break;
+        }
     }
 }
     
@@ -657,9 +695,9 @@ fn puff( dictlen:u32,         // length of custom dictionary
         if(true){
             GenLut(local_invocation_index);
             workgroupBarrier();
-            if(local_invocation_index == 0){
-                codes(local_invocation_index);
-            }
+            codes(local_invocation_index);
+            //last_block = 1;
+            workgroupBarrier();
         }
         
        // if (ts.err != 0) {
@@ -683,5 +721,6 @@ fn puff( dictlen:u32,         // length of custom dictionary
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-  puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
+    atomicStore(&atomic_idx, 20);
+    puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
 }
