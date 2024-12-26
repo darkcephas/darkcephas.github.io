@@ -21,7 +21,7 @@ const MAXDCODES=30 ;           /* maximum number of distance codes */
 const MAXCODES=(MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
 const FIXLCODES=288;           /* number of fixed literal/length codes */
 
-const WORKGROUP_SIZE = 32;
+const WORKGROUP_SIZE = 128;
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
 var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
@@ -95,6 +95,10 @@ const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
 var<private> debug_idx:u32 = 20;
 
 var<workgroup> atomic_idx:atomic<u32>;
+
+fn DebugWrite(val:u32){
+    debug[atomicAdd(&atomic_idx,1)]= val;
+}
 
 fn ReportError(error_code:i32){
     if(ts.err==0){
@@ -352,10 +356,18 @@ var<workgroup> decode_done:u32;
 fn codes(local_invocation_index:u32)
 {
     // everyone sets?
+     workgroupBarrier();
+     
+    if(local_invocation_index == 0){
     decode_done = 0;
+    }
+     workgroupBarrier();
+
+    var counter = 0;
     // Each invocation is going to start at staggered offset
     ts.incnt = atomicLoad(&g_incnt);
     ts.incnt += local_invocation_index;
+      workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
 
@@ -692,7 +704,9 @@ fn puff( dictlen:u32,         // length of custom dictionary
             atomicStore(&g_incnt, ts.incnt);
         }
 
+
         if(true){
+            workgroupBarrier();
             GenLut(local_invocation_index);
             workgroupBarrier();
             codes(local_invocation_index);
