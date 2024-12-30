@@ -425,6 +425,14 @@ fn codex(local_invocation_index:u32)
 }
 
 var<workgroup> decode_done:u32;
+
+
+// We can collect 32 at a time since we have only 32 possible stream rounds
+// TODO implement!
+var<workgroup>  collect_num_bytes:array<u32, NUM_SLOTS>;
+var<workgroup>  collect_incnt:array<u32, NUM_SLOTS>;
+var<workgroup>  collect_end_block:array<u32, NUM_SLOTS>;
+
 fn codes(local_invocation_index:u32)
 {
     workgroupBarrier();
@@ -469,6 +477,7 @@ fn codes(local_invocation_index:u32)
                 break;
             }
         }
+
 
         workgroupBarrier();
 
