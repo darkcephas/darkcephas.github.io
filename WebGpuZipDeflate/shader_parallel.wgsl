@@ -34,12 +34,13 @@ var<workgroup>  distsym:array<u32, FIXLCODES>;
 var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
-const NUM_SLOTS = WORKGROUP_SIZE / 8u;
+const NUM_SLOTS = WORKGROUP_SIZE / 32u;
+const ROUND_LENGTH_BITS = 512u;
 
-// 32 slots with 4 subslots each
+// 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)
 // we also need a mechanism for determining/finding the end. It might be best if thread 0 takes charge of the end
-var<workgroup> spec_offsets:array< array<array<u32, 4u>, 8u>, NUM_SLOTS>;
+var<workgroup> spec_offsets:array< array<u32, 32u>, NUM_SLOTS>;
 
 // Slot bit starting offsets
 var<workgroup> slot_incnt:array<u32, NUM_SLOTS>;
@@ -357,65 +358,34 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 var<workgroup> decode_done:u32;
 fn codes(local_invocation_index:u32)
 {
-    // everyone sets?
-    var local_prev_slot_incnt= 0xFFFFFFFFu;
-    var local_subslot = 0u;
-    var next_slot_idx = 0u;
     workgroupBarrier();
     if(local_invocation_index == 0){
         decode_done = 0;
+        //DebugWrite( atomicLoad(&g_incnt));
         ts.incnt = atomicLoad(&g_incnt);
-        next_slot_idx = ts.incnt;
-        for(var i=0u; i < NUM_SLOTS; i++){
-            slot_incnt[i] = next_slot_idx;
-            next_slot_idx = next_slot_idx + 256;
-        }
-        DebugWrite( atomicLoad(&g_incnt));
-        local_prev_slot_incnt = ts.incnt;
     }
 
-    var counter = 0;
+    var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
+    var debug_counter = 0;
 
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
-        workgroupBarrier();
-        if(local_invocation_index != 0){
-            local_subslot++;
-            
-            var slot_idx = local_invocation_index/8u;
-            if( local_prev_slot_incnt != slot_incnt[slot_idx]){
-                local_prev_slot_incnt = slot_incnt[slot_idx];
-                ts.incnt = slot_incnt[slot_idx];
-                local_subslot = 0;
-                var thread_idx = local_invocation_index%8;
-                ts.incnt += thread_idx;
-                // clear spec subslot offsets corresponding to each thread
-                for(var i=0u; i < 4; i++) {
-                    spec_offsets[slot_idx][thread_idx][i] = 0;
-                }
-            }
-            else
-            {
-                ts.incnt = slot_incnt[slot_idx];
-                var thread_idx = local_invocation_index % 8;
-                ts.incnt += thread_idx;
-                ts.incnt += 8 *local_subslot;
-            }
+       // workgroupBarrier();
+        if(local_invocation_index == 0){
+           // do nothing
         }
- 
+        else{
+            ts.incnt = slot_start + (local_invocation_index % 32u);
+        }
         var local_num_bytes = 0u;
         var invocation_hit_end_of_block = false;
-        workgroupBarrier();
+       // workgroupBarrier();
 
- 
-        // ~256 bits per round (20 decodes approx)
-        var local_original_start_inc = ts.incnt;
         while(true){
             // bits from stream 
             Read32();
             var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-            
             if (lut_len_res == 0)
             { 
                 // SLOW PATH none LUT
@@ -490,82 +460,80 @@ fn codes(local_invocation_index:u32)
 
             }
 
-
-            var local_bits_diff = ts.incnt - local_prev_slot_incnt;
-            if(local_bits_diff >= 256u || invocation_hit_end_of_block){
-                var thread_start_offset = local_invocation_index % 8u;
-                var thread_to_slot_idx = local_invocation_index / 8u; // 0-31
+           
+            var local_bits_diff = ts.incnt - slot_start;
+            if(local_bits_diff >= ROUND_LENGTH_BITS || invocation_hit_end_of_block){
+                
                 if(local_invocation_index == 0){
                  //  DebugWrite(300003);
                  // DebugWrite(local_invocation_index);
-                 //  DebugWrite(local_prev_slot_incnt);
-                 // DebugWrite(local_bits_diff);
-                 //  DebugWrite(ts.incnt);
-                  // DebugWrite(local_subslot);
                 }
-                local_bits_diff =  local_bits_diff - (thread_start_offset + local_subslot*8);
+                var thread_start_offset = local_invocation_index % 32u;
+                local_bits_diff =  local_bits_diff - (thread_start_offset);
                 // we have gone at least 256 bits 
-                if(!invocation_hit_end_of_block){
-                    spec_offsets[thread_to_slot_idx][thread_start_offset][local_subslot]  = (local_bits_diff<<20) | local_invocation_index ;//| local_num_bytes;
+                var end_of_block_flag =  0u;
+                if(invocation_hit_end_of_block)
+                {
+                    end_of_block_flag = (1u<<31u);
                 }
+                var thread_to_slot_idx = local_invocation_index / 32u; // 0-7
+                spec_offsets[thread_to_slot_idx][thread_start_offset]  = end_of_block_flag | (local_bits_diff<<20) | local_num_bytes;
                 break;
             }
         }
 
         workgroupBarrier();
+
+        const bool_as_single_threaded = false;
+      
         if(local_invocation_index == 0) {
             //DebugWrite(800008);
             //DebugWrite(ts.incnt);
-            local_prev_slot_incnt += 256;
 
-
-            if(true){
-                for(var j=0u; j < 2; j++) 
-                {
-                    for(var i=1u; i < NUM_SLOTS; i++) {
-                        if( ts.incnt >= slot_incnt[i] &&   (ts.incnt - slot_incnt[i]) < 128 ) {
-                            var diff_bits = ts.incnt - slot_incnt[i];
-                            var diff_div_8 = diff_bits / 8u; // this will be 0-3
-                            var diff_mod_8 = diff_bits % 8u;
-                           // DebugWrite(diff_div_8);
-                            // DebugWrite(diff_mod_8);
-                            // pick from speculative. Each index is thread/subthread
-                            var spec = spec_offsets[i][diff_mod_8][diff_div_8];
-                            if(spec != 0) {
-                                ts.incnt += spec >> 20; 
-                                local_prev_slot_incnt += 256;
-                               ///DebugWrite(600006);
-                               //DebugWrite(i);
-                              //  DebugWrite(spec & 0xFFFF);
-                              // DebugWrite(spec >> 20);
-                               // DebugWrite(ts.incnt);
-                             
-
-                                slot_incnt[i] = next_slot_idx;
-                                next_slot_idx += 256;
-                            }
-                            else {
-                               // DebugWrite(9999);
-                                slot_incnt[i] = next_slot_idx;
-                                next_slot_idx += 256;
-                            }
-                        }
+            if(!bool_as_single_threaded){
+                for(var i=1u; i < NUM_SLOTS; i++) {
+                    var diff_bits = ts.incnt - (slot_start + ROUND_LENGTH_BITS*i);
+                    var diff_mod_32 = diff_bits % 32u;
+                    // DebugWrite(diff_div_8);
+                    // DebugWrite(diff_mod_8);
+                    // pick from speculative. Each index is thread/subthread
+                    var spec = spec_offsets[i][diff_mod_32];
+                    
+                    var end_of_block_found = (spec & (1<<31)) != 0;
+                    var bits_diff = (spec >> 20) & 0x7FF;
+                    
+                    if(!invocation_hit_end_of_block){
+                        ts.incnt +=  bits_diff;
                     }
+
+                    if(end_of_block_found){
+                       // DebugWrite(600006);
+                        //DebugWrite(bits_diff);
+                        invocation_hit_end_of_block = true;
+                    }
+                    
+                    
+                    ///
+                    //DebugWrite(i);
+                    //  DebugWrite(spec & 0xFFFF);
+                    // DebugWrite(spec >> 20);
+                   // DebugWrite(10000000+ ts.incnt);
                 }
             }
-            
-
-            if(counter >1500000){
-                DebugWrite(3333);
-                decode_done = 1;
+            else {
+                slot_start += ROUND_LENGTH_BITS;
             }
-            counter++;
+
             if(invocation_hit_end_of_block){
-                DebugWrite(6666);
+               // DebugWrite(6666);
+                //DebugWrite(ts.incnt);
                 decode_done = 1;
             }
         }
- 
+
+        if(!bool_as_single_threaded){
+            slot_start += ROUND_LENGTH_BITS*NUM_SLOTS;
+        }
 
         workgroupBarrier();
        
