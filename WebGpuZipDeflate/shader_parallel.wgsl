@@ -11,6 +11,8 @@ struct ThreadState {
      err:i32,
      decode_to_store:u32, // useful as a type of global
      decode_len: u32, // 1 if val n if copy
+     decode_is_copy:bool,
+     invocation_hit_end_of_block:bool
 } ;
 
 var<private> ts : ThreadState;
@@ -21,7 +23,7 @@ const MAXDCODES=30 ;           /* maximum number of distance codes */
 const MAXCODES=(MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
 const FIXLCODES=288;           /* number of fixed literal/length codes */
 
-const WORKGROUP_SIZE = 256u;
+const WORKGROUP_SIZE = 1024u;
 
 var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
 var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
@@ -42,19 +44,9 @@ const ROUND_LENGTH_BITS = 512u;
 // we also need a mechanism for determining/finding the end. It might be best if thread 0 takes charge of the end
 var<workgroup> spec_offsets:array< array<u32, 32u>, NUM_SLOTS>;
 
-// Slot bit starting offsets
-var<workgroup> slot_incnt:array<u32, NUM_SLOTS>;
-
-
-
 // read encoded stream serializer
 var<workgroup> g_incnt:atomic<u32>;
-
-// allocation of bytes to write
-var<workgroup> g_write_tracker:atomic<u32>;
-
-// We do backreference copy so we need to always update what is complete
-var<workgroup> g_write_complete:atomic<u32>;
+var<workgroup> g_outbyte:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
@@ -96,7 +88,6 @@ const  kDext= array<u32,30> ( /* Extra bits for distance codes 0..29 */
     12, 12, 13, 13 );
 
 var<private> debug_idx:u32 = 20;
-
 var<workgroup> atomic_idx:atomic<u32>;
 
 fn DebugWrite(val:u32){
@@ -133,6 +124,7 @@ fn PeekByteOut( rev_offset_in_bytes:u32, byte_loc:u32) -> u32
 
 fn StreamWriteByteOut( val:u32)
 {
+    ts.decode_is_copy = false;
     ts.decode_to_store = val;
     ts.decode_len = 1;
 }
@@ -152,8 +144,8 @@ fn WriteByteOut(val:u32, byte_loc:u32)
 
 fn StreamCopyBytes( dist:u32, len:u32) 
 {
-    var val = (1<<31) | (len << 16) | dist;
-    ts.decode_to_store = val;
+    ts.decode_is_copy = true;
+    ts.decode_to_store = dist;
     ts.decode_len = len;
     return;
 }
@@ -355,6 +347,83 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 }
 
 
+fn codex(local_invocation_index:u32)
+{
+    // bits from stream 
+    Read32();
+    var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
+    if (lut_len_res == 0)
+    { 
+        // SLOW PATH none LUT
+        var symbol:u32 = decode_mutate(&lencnt, &lensym);
+
+        if (symbol < 256) { // literal: symbol is the byte 
+            StreamWriteByteOut(symbol); // write out the literal 
+        }
+        else if (symbol == 256){  
+            // end of block symbol 
+            ts.invocation_hit_end_of_block = true;
+            ts.decode_len = 0;
+        } 
+        else if (symbol > 256) {     
+            symbol -= 257;  // length and distance codes get and compute length 
+            if (symbol >= 29) {
+                ReportError(ERROR_RAN_OUT_OF_CODES);       
+            }
+            var len:u32 = kLens[symbol] + bits_local(kLext[symbol]);
+            symbol = decode_mutate(&distcnt, &distsym);
+            // distance for copy 
+            var dist:u32 = kDists[symbol] + bits_local(kDext[symbol]);
+            // copy length bytes from distance bytes back
+            StreamCopyBytes(dist, len);
+        }
+    }
+    else {
+        
+        var symbol:u32 = 0x1FF & lut_len_res;
+        let temp_cnt:u32 = lut_len_res >> 25; 
+        ts.bitbuf = ts.bitbuf >> temp_cnt;
+        ts.incnt  = ts.incnt + temp_cnt;
+
+        if (symbol < 256) { // literal: symbol is the byte 
+            StreamWriteByteOut(symbol); // write out the literal 
+        }
+        else if (symbol == 256){ 
+            // end of block symbol 
+            ts.invocation_hit_end_of_block = true;
+            ts.decode_len = 0;
+        } 
+        else if (symbol > 256) {     
+            symbol -= 257;  // length and distance codes get and compute length 
+            if (symbol >= 29) {
+                ReportError(ERROR_RAN_OUT_OF_CODES);       
+            }
+
+            let len:u32 = (lut_len_res >> 9) & 0xFFFF;
+
+            var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
+            var dist:u32 =  0;
+            if(lut_dist_res == 0)
+            {
+                symbol = decode_mutate(&distcnt, &distsym);
+                // distance for copy 
+                dist = kDists[symbol] + bits_local(kDext[symbol]);
+            }
+            else {
+                let temp_cnt:u32 = lut_dist_res >> 24;
+                ts.bitbuf = ts.bitbuf >> temp_cnt;
+                ts.incnt  = ts.incnt + temp_cnt;
+                let dist_kdist:u32 = (lut_dist_res >> 8) & 0xFFFF;
+                let dist_kdext:u32 = (lut_dist_res & 0xFF);
+                dist = dist_kdist + bits_local(dist_kdext);
+            }
+
+            // copy length bytes from distance bytes back
+            StreamCopyBytes(dist, len);
+        }
+    }      
+}
+
 var<workgroup> decode_done:u32;
 fn codes(local_invocation_index:u32)
 {
@@ -366,12 +435,11 @@ fn codes(local_invocation_index:u32)
     }
 
     var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
-    var debug_counter = 0;
 
+    var total_bytes = atomicLoad(&g_outbyte);;
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
-       // workgroupBarrier();
         if(local_invocation_index == 0){
            // do nothing
         }
@@ -379,100 +447,20 @@ fn codes(local_invocation_index:u32)
             ts.incnt = slot_start + (local_invocation_index % 32u);
         }
         var local_num_bytes = 0u;
-        var invocation_hit_end_of_block = false;
-       // workgroupBarrier();
+        ts.invocation_hit_end_of_block = false;
+   
 
         while(true){
-            // bits from stream 
-            Read32();
-            var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
-            if (lut_len_res == 0)
-            { 
-                // SLOW PATH none LUT
-                var symbol:u32 = decode_mutate(&lencnt, &lensym);
+            codex(local_invocation_index);
+            local_num_bytes += ts.decode_len;
 
-                if (symbol < 256) { // literal: symbol is the byte 
-                    //StreamWriteByteOut(symbol); // write out the literal 
-                    local_num_bytes++;
-                }
-                else if (symbol == 256){  
-                    // end of block symbol 
-                    invocation_hit_end_of_block = true;
-                } 
-                else if (symbol > 256) {     
-                    symbol -= 257;  // length and distance codes get and compute length 
-                    if (symbol >= 29) {
-                        ReportError(ERROR_RAN_OUT_OF_CODES);       
-                    }
-                    var len:u32 = kLens[symbol] + bits_local(kLext[symbol]);
-                    symbol = decode_mutate(&distcnt, &distsym);
-                    // distance for copy 
-                    var dist:u32 = kDists[symbol] + bits_local(kDext[symbol]);
-                    // copy length bytes from distance bytes back
-                    //StreamCopyBytes(dist, len);
-                    local_num_bytes = len +  local_num_bytes;
-                }
-            }
-            else {
-                
-                var symbol:u32 = 0x1FF & lut_len_res;
-                let temp_cnt:u32 = lut_len_res >> 25; 
-                ts.bitbuf = ts.bitbuf >> temp_cnt;
-                ts.incnt  = ts.incnt + temp_cnt;
-
-                if (symbol < 256) { // literal: symbol is the byte 
-                    StreamWriteByteOut(symbol); // write out the literal 
-                    local_num_bytes++;
-                }
-                else if (symbol == 256){ 
-                    // end of block symbol 
-                    invocation_hit_end_of_block = true;
-                } 
-                else if (symbol > 256) {     
-                    symbol -= 257;  // length and distance codes get and compute length 
-                    if (symbol >= 29) {
-                        ReportError(ERROR_RAN_OUT_OF_CODES);       
-                    }
-
-                    let len:u32 = (lut_len_res >> 9) & 0xFFFF;
-
-                    var lut_dist_res:u32 = distLut[ts.bitbuf & 0x3FF];
-                    var dist:u32 =  0;
-                    if(lut_dist_res == 0)
-                    {
-                        symbol = decode_mutate(&distcnt, &distsym);
-                        // distance for copy 
-                        dist = kDists[symbol] + bits_local(kDext[symbol]);
-                    }
-                    else {
-                        let temp_cnt:u32 = lut_dist_res >> 24;
-                        ts.bitbuf = ts.bitbuf >> temp_cnt;
-                        ts.incnt  = ts.incnt + temp_cnt;
-                        let dist_kdist:u32 = (lut_dist_res >> 8) & 0xFFFF;
-                        let dist_kdext:u32 = (lut_dist_res & 0xFF);
-                        dist = dist_kdist + bits_local(dist_kdext);
-                    }
-            
-                    // copy length bytes from distance bytes back
-                    //StreamCopyBytes(dist, len);
-                    local_num_bytes = len + local_num_bytes;
-                }
-
-            }
-
-           
             var local_bits_diff = ts.incnt - slot_start;
-            if(local_bits_diff >= ROUND_LENGTH_BITS || invocation_hit_end_of_block){
-                
-                if(local_invocation_index == 0){
-                 //  DebugWrite(300003);
-                 // DebugWrite(local_invocation_index);
-                }
+            if(local_bits_diff >= ROUND_LENGTH_BITS || ts.invocation_hit_end_of_block){
                 var thread_start_offset = local_invocation_index % 32u;
                 local_bits_diff =  local_bits_diff - (thread_start_offset);
                 // we have gone at least 256 bits 
                 var end_of_block_flag =  0u;
-                if(invocation_hit_end_of_block)
+                if(ts.invocation_hit_end_of_block)
                 {
                     end_of_block_flag = (1u<<31u);
                 }
@@ -487,45 +475,35 @@ fn codes(local_invocation_index:u32)
         const bool_as_single_threaded = false;
       
         if(local_invocation_index == 0) {
-            //DebugWrite(800008);
-            //DebugWrite(ts.incnt);
-
+            total_bytes += local_num_bytes;
             if(!bool_as_single_threaded){
                 for(var i=1u; i < NUM_SLOTS; i++) {
                     var diff_bits = ts.incnt - (slot_start + ROUND_LENGTH_BITS*i);
                     var diff_mod_32 = diff_bits % 32u;
-                    // DebugWrite(diff_div_8);
-                    // DebugWrite(diff_mod_8);
                     // pick from speculative. Each index is thread/subthread
                     var spec = spec_offsets[i][diff_mod_32];
                     
                     var end_of_block_found = (spec & (1<<31)) != 0;
                     var bits_diff = (spec >> 20) & 0x7FF;
+                    var bytes_round = spec & 0xFFFFF; 
                     
-                    if(!invocation_hit_end_of_block){
+                  
+                    if(!ts.invocation_hit_end_of_block){
                         ts.incnt +=  bits_diff;
+                        total_bytes += bytes_round;
                     }
 
                     if(end_of_block_found){
-                       // DebugWrite(600006);
-                        //DebugWrite(bits_diff);
-                        invocation_hit_end_of_block = true;
+                        ts.invocation_hit_end_of_block = true;
                     }
-                    
-                    
-                    ///
-                    //DebugWrite(i);
-                    //  DebugWrite(spec & 0xFFFF);
-                    // DebugWrite(spec >> 20);
-                   // DebugWrite(10000000+ ts.incnt);
                 }
             }
             else {
                 slot_start += ROUND_LENGTH_BITS;
             }
 
-            if(invocation_hit_end_of_block){
-               // DebugWrite(6666);
+            if(ts.invocation_hit_end_of_block){
+                //DebugWrite(6666);
                 //DebugWrite(ts.incnt);
                 decode_done = 1;
             }
@@ -540,6 +518,8 @@ fn codes(local_invocation_index:u32)
         if(workgroupUniformLoad(&decode_done) != 0){
           if(local_invocation_index == 0) {
             atomicStore(&g_incnt, ts.incnt);
+            atomicStore(&g_outbyte, total_bytes);
+            DebugWrite( atomicLoad(&g_outbyte));
           }
           workgroupBarrier();
           break;
@@ -741,13 +721,9 @@ fn puff( dictlen:u32,         // length of custom dictionary
             GenLut(local_invocation_index);
             workgroupBarrier();
             codes(local_invocation_index);
-            //last_block = 1;
             workgroupBarrier();
         }
         
-       // if (ts.err != 0) {
-       //     break;                  /* return with error */
-       // }
 
         if(workgroupUniformLoad(&last_block) != 0){
           break;

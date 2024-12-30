@@ -90,6 +90,10 @@ window.onload = async function () {
   // We dont need timestamps for this code to work but this is a prototype.
   device = await adapter.requestDevice({
     requiredFeatures: ["timestamp-query"],
+    requiredLimits: {
+      maxComputeInvocationsPerWorkgroup:1024,
+      maxComputeWorkgroupSizeX:1024
+    }
   });
 
 
