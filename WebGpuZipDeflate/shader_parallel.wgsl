@@ -49,7 +49,7 @@ var<workgroup> spec_offsets:array< array<u32, 32u>, NUM_SLOTS>;
 
 // read encoded stream serializer
 var<workgroup> g_incnt:atomic<u32>;
-var<workgroup> g_outbyte:atomic<u32>;
+
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
@@ -460,7 +460,7 @@ fn codes(local_invocation_index:u32)
 
     var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
 
-    var total_bytes = atomicLoad(&g_outbyte);;
+    var total_bytes = 0u;
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
@@ -541,7 +541,6 @@ fn codes(local_invocation_index:u32)
         if(workgroupUniformLoad(&decode_done) != 0){
           if(local_invocation_index == 0) {
             atomicStore(&g_incnt, ts.incnt);
-            atomicStore(&g_outbyte, total_bytes);
             ts.outcnt += total_bytes;
           }
           workgroupBarrier();
@@ -690,9 +689,16 @@ var<workgroup> g_start_count:u32;
 fn codes_decode(local_invocation_index:u32)
 {
     ts.invocation_hit_end_of_block = false;
+    var counter = 0u;
     while(true) {
+        counter++;
         codex();
+        if( counter % 1000== 0){
+            DebugWrite(100000000);
+            DebugWrite(ts.outcnt);
+        }
         if(ts.invocation_hit_end_of_block){
+            DebugWrite(3333111);
             break;
         }
         else if(ts.decode_is_copy){
@@ -731,9 +737,6 @@ fn puff_decode( dictlen:u32,         // length of custom dictionary
 
     DebugWrite(ts.incnt);
     DebugWrite(ts.outcnt);
-    if(true){
-        return 0;
-    }
 
     // This only does 1 block per invocation. 
     Read32();
@@ -743,22 +746,26 @@ fn puff_decode( dictlen:u32,         // length of custom dictionary
     if (type_now == 0) {
         stored();
         is_store = true; // not supported anyway
+        ts.err = -1;
     }
     else
     {
         if (type_now == 1) {
             fixed();
+            debug[7]++;
         }
         else if (type_now == 2) {
             dynamic();
+            debug[8]++;
         }
         else {
             // type_now == 3, invalid
             ts.err = -1;
         }
     }
+  
     codes_decode(local_invocation_index);
-
+    debug[9] = u32( ts.err);
     return ts.err;
 }
 
@@ -799,7 +806,18 @@ fn puff( dictlen:u32,         // length of custom dictionary
             DebugWrite( atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]));
             DebugWrite( ts.incnt);
             DebugWrite( ts.outcnt);
-            atomicAdd(&d_head_tail_complete_useless[D_HEAD_INDEX], 1);
+
+
+            while(true) {
+                var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_HEAD_INDEX], block_counter, block_counter+1);
+                if(!cas.exchanged){
+                    block_counter = cas.old_value; 
+                }
+                else {
+                    break;
+                }
+            }
+
 
             Read32();
             var last:u32 = bits(1);         /* one if last block */
@@ -874,7 +892,8 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
                 var tail_read = atomicLoad(&d_head_tail_complete_useless[D_TAIL_INDEX]);
                 if(head_read > tail_read){
                     // lets see if we can grab as many as possible
-                    var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
+                   // var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
+                    var acquired_count = min(1, head_read- tail_read);
                     var new_tail = acquired_count + tail_read;
                     var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX],tail_read , new_tail);
                     if(cas.exchanged){

@@ -398,7 +398,7 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 3:1);
+  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 2:1);
   computePass.end();
   const stagingBuffer = device.createBuffer({
     size: uncompressed_size_rounded,
