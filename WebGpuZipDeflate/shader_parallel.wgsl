@@ -454,7 +454,6 @@ fn codes(local_invocation_index:u32)
     workgroupBarrier();
     if(local_invocation_index == 0){
         decode_done = 0;
-        //DebugWrite( atomicLoad(&g_incnt));
         ts.incnt = atomicLoad(&g_incnt);
     }
 
@@ -693,12 +692,7 @@ fn codes_decode(local_invocation_index:u32)
     while(true) {
         counter++;
         codex();
-        if( counter % 1000== 0){
-            DebugWrite(100000000);
-            DebugWrite(ts.outcnt);
-        }
         if(ts.invocation_hit_end_of_block){
-            DebugWrite(3333111);
             break;
         }
         else if(ts.decode_is_copy){
@@ -732,11 +726,6 @@ fn puff_decode( dictlen:u32,         // length of custom dictionary
     ts.bitbuf = 0;
     ts.incnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2];
     ts.outcnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2 + 1];
-
-    DebugWrite(555555);
-
-    DebugWrite(ts.incnt);
-    DebugWrite(ts.outcnt);
 
     // This only does 1 block per invocation. 
     Read32();
@@ -802,12 +791,6 @@ fn puff( dictlen:u32,         // length of custom dictionary
         }
         storageBarrier();
         if(local_invocation_index == 0){
-            DebugWrite( 777777);
-            DebugWrite( atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]));
-            DebugWrite( ts.incnt);
-            DebugWrite( ts.outcnt);
-
-
             while(true) {
                 var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_HEAD_INDEX], block_counter, block_counter+1);
                 if(!cas.exchanged){
@@ -899,10 +882,6 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
                     if(cas.exchanged){
                         g_start_idx = tail_read;
                         g_start_count = acquired_count;
-                        DebugWrite( 888888);
-                        debug[10]= 66666;
-                        DebugWrite( g_start_idx);
-                        DebugWrite( g_start_count);
                     }
                 } else if(head_read == tail_read && main_dispatch_complete != 0){
                     last_block = 1;
