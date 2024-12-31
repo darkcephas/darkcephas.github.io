@@ -247,6 +247,14 @@ async function RunDecompression() {
       binding: 3,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" } // debugging
+    }, {
+      binding: 4,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" } // debugging
+    }, {
+      binding: 5,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" } // debugging
     }]
   });
 
@@ -337,6 +345,23 @@ async function RunDecompression() {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
+
+    let decodeParallelOutBufferStorage =
+    device.createBuffer({
+      label: "decode parallel out storage result",
+      size: 1024*1024*4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    let decodeParallelControlBufferStorage =
+    device.createBuffer({
+      label: "decode parallel controll storage result",
+      size: 1024*4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+
+
   let commonBindGroup =
     device.createBindGroup({
       label: "Compute renderer bind group A",
@@ -353,7 +378,14 @@ async function RunDecompression() {
       }, {
         binding: 3,
         resource: { buffer: debuggingBufferStorage }
-      }],
+      }, {
+        binding: 4,
+        resource: { buffer: decodeParallelOutBufferStorage }
+      }, {
+        binding: 5,
+        resource: { buffer: decodeParallelControlBufferStorage }
+      }
+    ],
     });
 
 
@@ -366,7 +398,7 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(1);
+  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 3:1);
   computePass.end();
   const stagingBuffer = device.createBuffer({
     size: uncompressed_size_rounded,
@@ -423,8 +455,9 @@ async function RunDecompression() {
 
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
-
   console.log(inflated_bytes);
+  var string = new TextDecoder().decode(inflated_bytes);
+  console.log(string);
 
   {
     await stagingBufferDebug.mapAsync(

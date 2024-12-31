@@ -12,10 +12,13 @@ struct ThreadState {
      decode_to_store:u32, // useful as a type of global
      decode_len: u32, // 1 if val n if copy
      decode_is_copy:bool,
-     invocation_hit_end_of_block:bool
+     invocation_hit_end_of_block:bool,
+     is_output_dispatch: bool
 } ;
 
 var<private> ts : ThreadState;
+
+
 
 const MAXBITS=15 ;             /* maximum bits in a code */
 const MAXLCODES=286 ;          /* maximum number of literal/length codes */
@@ -52,6 +55,19 @@ var<workgroup> g_outbyte:atomic<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
 @group(0) @binding(2) var<uniform> unidata: CommonData;
 @group(0) @binding(3) var<storage,read_write> debug: array<u32>;
+// Data for decoded -> store phase
+const MAX_NUMBER_DEFLATE_BLOCKS = 1024*1024;
+@group(0) @binding(4) var<storage, read_write>  d_start_inc_and_bytes:array<u32, MAX_NUMBER_DEFLATE_BLOCKS>;      
+// cleanest way to get all this atomics into one storage.. :(      
+@group(0) @binding(5) var<storage, read_write> d_head_tail_complete_useless:array<atomic<u32>, 1024>;   
+
+// avoid contented atomics memory
+const D_HEAD_INDEX = 0;
+const D_TAIL_INDEX = 128;
+const D_COMPLETE_INDEX = 256;
+const D_USELESS_INDEX = 256+128;
+
+
 
 var<workgroup> ws : CommonData;
 
@@ -347,7 +363,7 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
 }
 
 
-fn codex(local_invocation_index:u32)
+fn codex()
 {
     // bits from stream 
     Read32();
@@ -459,7 +475,7 @@ fn codes(local_invocation_index:u32)
    
 
         while(true){
-            codex(local_invocation_index);
+            codex();
             local_num_bytes += ts.decode_len;
 
             var local_bits_diff = ts.incnt - slot_start;
@@ -512,8 +528,6 @@ fn codes(local_invocation_index:u32)
             }
 
             if(ts.invocation_hit_end_of_block){
-                //DebugWrite(6666);
-                //DebugWrite(ts.incnt);
                 decode_done = 1;
             }
         }
@@ -528,7 +542,7 @@ fn codes(local_invocation_index:u32)
           if(local_invocation_index == 0) {
             atomicStore(&g_incnt, ts.incnt);
             atomicStore(&g_outbyte, total_bytes);
-            DebugWrite( atomicLoad(&g_outbyte));
+            ts.outcnt += total_bytes;
           }
           workgroupBarrier();
           break;
@@ -669,32 +683,124 @@ fn dynamic()
 
 var<workgroup> last_block:u32;
 
+var<workgroup> g_start_idx:u32;
+var<workgroup> g_start_count:u32;
+
+
+fn codes_decode(local_invocation_index:u32)
+{
+    ts.invocation_hit_end_of_block = false;
+    while(true) {
+        codex();
+        if(ts.invocation_hit_end_of_block){
+            break;
+        }
+        else if(ts.decode_is_copy){
+            CopyBytes( ts.decode_to_store, ts.decode_len, ts.outcnt);
+            ts.outcnt += ts.decode_len;
+        }
+        else{
+            WriteByteOut(ts.decode_to_store, ts.outcnt);
+            ts.outcnt += ts.decode_len;
+        }
+    }
+}
+    
+fn puff_decode( dictlen:u32,         // length of custom dictionary
+    destlen:u32,        /* amount of output space */
+    sourcelen:u32, /* amount of input available */
+    local_invocation_index:u32)     
+    -> i32
+{
+    if(local_invocation_index >= g_start_count){
+        return 0; //keep only active threads
+    }
+   
+    ts.err = 0;                    /* return value */
+
+    /* initialize output state */
+    ws.outlen = destlen;                /* ignored if dest is NIL */
+
+    /* initialize input state */
+    ws.inlen = sourcelen;
+    ts.bitbuf = 0;
+    ts.incnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2];
+    ts.outcnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2 + 1];
+
+    DebugWrite(555555);
+
+    DebugWrite(ts.incnt);
+    DebugWrite(ts.outcnt);
+    if(true){
+        return 0;
+    }
+
+    // This only does 1 block per invocation. 
+    Read32();
+    var last:u32 = bits(1);         /* one if last block */
+    var type_now:u32 = bits(2);         /* block type_now 0..3 */
+    var is_store = false;
+    if (type_now == 0) {
+        stored();
+        is_store = true; // not supported anyway
+    }
+    else
+    {
+        if (type_now == 1) {
+            fixed();
+        }
+        else if (type_now == 2) {
+            dynamic();
+        }
+        else {
+            // type_now == 3, invalid
+            ts.err = -1;
+        }
+    }
+    codes_decode(local_invocation_index);
+
+    return ts.err;
+}
+
+
+
 fn puff( dictlen:u32,         // length of custom dictionary
     destlen:u32,        /* amount of output space */
     sourcelen:u32, /* amount of input available */
     local_invocation_index:u32)     
     -> i32
 {
-   
     ts.err = 0;                    /* return value */
 
     /* initialize output state */
     ws.outlen = destlen;                /* ignored if dest is NIL */
-    ts.outcnt = dictlen;
+    ts.outcnt = 0;
 
     /* initialize input state */
     ws.inlen = sourcelen;
     ts.incnt = 0;
     ts.bitbuf = 0;
 
-
     while(true) {
-        //if(ts.err != 0){
-       //     break;
-       // }
-
         // Only the first invocation does all the init table work 
+        storageBarrier();
+        var block_counter = 0u;
         if(local_invocation_index == 0){
+            block_counter = atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]);
+        }
+        storageBarrier();
+        if(local_invocation_index == 0){
+            d_start_inc_and_bytes[block_counter*2+0] = ts.incnt;
+            d_start_inc_and_bytes[block_counter*2+1] = ts.outcnt;
+        }
+        storageBarrier();
+        if(local_invocation_index == 0){
+            DebugWrite( 777777);
+            DebugWrite( atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]));
+            DebugWrite( ts.incnt);
+            DebugWrite( ts.outcnt);
+            atomicAdd(&d_head_tail_complete_useless[D_HEAD_INDEX], 1);
+
             Read32();
             var last:u32 = bits(1);         /* one if last block */
             var type_now:u32 = bits(2);         /* block type_now 0..3 */
@@ -725,13 +831,11 @@ fn puff( dictlen:u32,         // length of custom dictionary
         }
 
 
-        if(true){
-            workgroupBarrier();
-            GenLut(local_invocation_index);
-            workgroupBarrier();
-            codes(local_invocation_index);
-            workgroupBarrier();
-        }
+        workgroupBarrier();
+        GenLut(local_invocation_index);
+        workgroupBarrier();
+        codes(local_invocation_index);
+        workgroupBarrier();
         
 
         if(workgroupUniformLoad(&last_block) != 0){
@@ -739,18 +843,70 @@ fn puff( dictlen:u32,         // length of custom dictionary
         }
     } 
 
-    if (ts.err <= 0) {
-         // update the lengths and return 
-       // *destlen = ts.outcnt - dictlen;
-        //*sourcelen = ts.incnt;
-    }
     return ts.err;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
+fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-    atomicStore(&atomic_idx, 20);
-    puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
+    ts.is_output_dispatch = workgroup_id.x > 0; // only first one plays a role
+    if( workgroup_id.x > 0){
+        atomicStore(&atomic_idx, 100);
+        last_block = 0;
+        while(workgroupUniformLoad(&last_block) == 0) {
+           
+            workgroupBarrier();
+            storageBarrier();
+            var main_dispatch_complete = 0u;
+            if(local_invocation_index == 0){
+                g_start_count = 0;
+                // order here is important
+                main_dispatch_complete = atomicLoad(&d_head_tail_complete_useless[D_COMPLETE_INDEX]);
+            }
+            storageBarrier();
+            var head_read = 0u;
+            if(local_invocation_index == 0){
+                head_read = atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]);
+            }
+            storageBarrier();
+            if(local_invocation_index == 0){
+                var tail_read = atomicLoad(&d_head_tail_complete_useless[D_TAIL_INDEX]);
+                if(head_read > tail_read){
+                    // lets see if we can grab as many as possible
+                    var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
+                    var new_tail = acquired_count + tail_read;
+                    var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX],tail_read , new_tail);
+                    if(cas.exchanged){
+                        g_start_idx = tail_read;
+                        g_start_count = acquired_count;
+                        DebugWrite( 888888);
+                        debug[10]= 66666;
+                        DebugWrite( g_start_idx);
+                        DebugWrite( g_start_count);
+                    }
+                } else if(head_read == tail_read && main_dispatch_complete != 0){
+                    last_block = 1;
+                }
+            }
+
+            puff_decode(0, unidata.outlen, unidata.inlen, local_invocation_index);
+  
+            workgroupBarrier();
+            atomicAdd(&d_head_tail_complete_useless[D_USELESS_INDEX], 1);
+
+            if(workgroupUniformLoad(&last_block) != 0){
+                break;
+            }
+
+            workgroupBarrier();
+        }
+        return;
+    }
+    else {
+        atomicStore(&atomic_idx, 20);
+        puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
+        storageBarrier();
+        atomicStore(&d_head_tail_complete_useless[D_COMPLETE_INDEX],1); 
+    }
 }
