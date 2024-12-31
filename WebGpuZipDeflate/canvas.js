@@ -398,7 +398,7 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 2:1);
+  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 1:1);
   computePass.end();
   const stagingBuffer = device.createBuffer({
     size: uncompressed_size_rounded,
@@ -455,9 +455,9 @@ async function RunDecompression() {
 
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
-  console.log(inflated_bytes);
-  var string = new TextDecoder().decode(inflated_bytes);
-  console.log(string);
+ // console.log(inflated_bytes);
+ // var string = new TextDecoder().decode(inflated_bytes);
+  //console.log(string);
 
   {
     await stagingBufferDebug.mapAsync(

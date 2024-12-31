@@ -45,7 +45,7 @@ const ROUND_LENGTH_BITS = 512u;
 // 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)
 // we also need a mechanism for determining/finding the end. It might be best if thread 0 takes charge of the end
-var<workgroup> spec_offsets:array< array<u32, 32u>, NUM_SLOTS>;
+var<workgroup> spec_offsets:array<array<u32, 32u>, NUM_SLOTS>;
 
 // read encoded stream serializer
 var<workgroup> g_incnt:atomic<u32>;
@@ -67,11 +67,7 @@ const D_TAIL_INDEX = 128;
 const D_COMPLETE_INDEX = 256;
 const D_USELESS_INDEX = 256+128;
 
-
-
 var<workgroup> ws : CommonData;
-
-
 
 const ERROR_OUTPUT_OVERFLOW = 2;
 const ERROR_NO_MATCH_COMPLEMENT = 3;
@@ -856,7 +852,6 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
         atomicStore(&atomic_idx, 100);
         last_block = 0;
         while(workgroupUniformLoad(&last_block) == 0) {
-           
             workgroupBarrier();
             storageBarrier();
             var main_dispatch_complete = 0u;
@@ -892,12 +887,6 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
   
             workgroupBarrier();
             atomicAdd(&d_head_tail_complete_useless[D_USELESS_INDEX], 1);
-
-            if(workgroupUniformLoad(&last_block) != 0){
-                break;
-            }
-
-            workgroupBarrier();
         }
         return;
     }
