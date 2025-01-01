@@ -604,7 +604,9 @@ fn puff_decode( dictlen:u32,         // length of custom dictionary
     ts.bitbuf = 0;
     ts.incnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2];
     ts.outcnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2 + 1];
-
+    debug_local_byte_start = ts.outcnt;
+    DebugWrite(ts.incnt );
+    DebugWrite(  ts.outcnt);
     // This only does 1 block per invocation. 
     Read32();
     var last:u32 = bits(1);         /* one if last block */
@@ -668,11 +670,13 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
                  var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
                 //var acquired_count = min(1, head_read- tail_read);
                 var new_tail = acquired_count + tail_read;
-                var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX],tail_read , new_tail);
+                var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX], tail_read, new_tail);
                 if(cas.exchanged){
                     g_start_idx = tail_read;
                     g_start_count = acquired_count;
-           
+                    DebugWrite(8888888);
+                    DebugWrite(g_start_idx);
+                    DebugWrite(g_start_count);
                 }
             } else if(head_read == tail_read && main_dispatch_complete != 0){
                 last_block = 1;

@@ -40,7 +40,7 @@ var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
 const NUM_SLOTS = WORKGROUP_SIZE / 32u;
-const ROUND_LENGTH_BITS = 512u;
+const ROUND_LENGTH_BITS = 256u;
 
 // 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)

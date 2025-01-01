@@ -420,7 +420,7 @@ async function RunDecompression() {
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
   computePass.dispatchWorkgroups(1);
-  if(renderBufferPipeline_decompress){
+  if(false){ //renderBufferPipeline_decompress){
     computePass.setPipeline(renderBufferPipeline_decompress);
     computePass.setBindGroup(0, commonBindGroup);
     computePass.dispatchWorkgroups(1);
@@ -481,9 +481,9 @@ async function RunDecompression() {
 
   inflated_bytes = new Uint8Array(data, 0, uncompressed_size);
   var crc_test = crc32(inflated_bytes);
- // console.log(inflated_bytes);
- // var string = new TextDecoder().decode(inflated_bytes);
-  //console.log(string);
+  console.log(inflated_bytes);
+  var string = new TextDecoder().decode(inflated_bytes);
+  console.log(string);
 
   {
     await stagingBufferDebug.mapAsync(
