@@ -2,7 +2,7 @@
 
 var device;
 var context;
-var forceIndexShaderModule
+
 var readOffset = 0;
 var inputFileResult = null;
 var inflated_bytes = null;
@@ -265,6 +265,7 @@ async function RunDecompression() {
 
 
   var shader_code = "";
+  var shader_code_decompress = null;
   if(radioOriginalElement.checked){
     shader_code = shaderCode_original;
   }
@@ -279,15 +280,14 @@ async function RunDecompression() {
   }
 
   if(radioShaderParallelElement.checked){
-    shader_code =  await loadShaderFromDisk('shader_parallel.wgsl');
+    shader_code =  await loadShaderFromDisk('shader_parallel_decode.wgsl');
+    shader_code_decompress =  await loadShaderFromDisk('shader_parallel_decompress.wgsl');
   }
 
-  forceIndexShaderModule = device.createShaderModule({
-    label: "Force Index shader",
+  let forceIndexShaderModule = device.createShaderModule({
+    label: "Zip decode shader",
     code: shader_code,
   });
-
-
 
 
   // Create a compute pipeline that updates the game state.
@@ -299,6 +299,27 @@ async function RunDecompression() {
       entryPoint: "computeMain",
     }
   });
+
+
+  let forceIndexShaderModule_decompress = null;
+  let renderBufferPipeline_decompress = null;
+  if(shader_code_decompress){
+    forceIndexShaderModule_decompress = device.createShaderModule({
+      label: "Zip decode shader fpr decompression",
+      code: shader_code_decompress,
+    });
+
+
+    // Create a compute pipeline that updates the game state.
+    renderBufferPipeline_decompress = device.createComputePipeline({
+      label: "Decompression pipe",
+      layout: pipelineLayout,
+      compute: {
+        module: forceIndexShaderModule_decompress,
+        entryPoint: "computeMain",
+      }
+    });
+  }
 
 
 
@@ -398,7 +419,12 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(radioShaderParallelElement.checked? 1:1);
+  computePass.dispatchWorkgroups(1);
+  if(renderBufferPipeline_decompress){
+    computePass.setPipeline(renderBufferPipeline_decompress);
+    computePass.setBindGroup(0, commonBindGroup);
+    computePass.dispatchWorkgroups(1);
+  }
   computePass.end();
   const stagingBuffer = device.createBuffer({
     size: uncompressed_size_rounded,
