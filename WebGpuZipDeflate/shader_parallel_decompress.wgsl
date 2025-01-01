@@ -604,7 +604,6 @@ fn puff_decode( dictlen:u32,         // length of custom dictionary
     ts.bitbuf = 0;
     ts.incnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2];
     ts.outcnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2 + 1];
-    debug_local_byte_start = ts.outcnt;
     DebugWrite(ts.incnt );
     DebugWrite(  ts.outcnt);
     // This only does 1 block per invocation. 
