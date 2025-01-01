@@ -28,12 +28,12 @@ const FIXLCODES=288;           /* number of fixed literal/length codes */
 
 const WORKGROUP_SIZE = 1u;
 
-var<workgroup>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
-var<workgroup>  lencnt:array<u32, MAXBITS + 1>;
-var<workgroup>  lensym:array<u32, FIXLCODES>;
-var<workgroup>  distcnt:array<u32, MAXBITS + 1>;
+var<private>  lengths:array<i32, MAXCODES>;            /* descriptor code lengths */
+var<private>  lencnt:array<u32, MAXBITS + 1>;
+var<private>  lensym:array<u32, FIXLCODES>;
+var<private>  distcnt:array<u32, MAXBITS + 1>;
  // Length should be MAXDCODES but is FIXLCODES to use same fixed sized pointer
-var<workgroup>  distsym:array<u32, FIXLCODES>;
+var<private>  distsym:array<u32, FIXLCODES>;
 
 
 @group(0) @binding(0) var<storage> in: array<u32>;
@@ -208,8 +208,7 @@ struct DecodeRtn {
   cnt: u32, // zero means could not decode
 }  
 
-fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>,
-            bitbuf_in:u32, left_in:u32) -> DecodeRtn
+fn decode_dist(bitbuf_in:u32, left_in:u32) -> DecodeRtn
 {
     var bitbuf:u32  = bitbuf_in;
     var left:u32  = left_in;
@@ -225,10 +224,10 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sy
             code |= i32(bitbuf & 1);
             bitbuf >>= 1;
             // number of codes of length len 
-            var count:i32 = i32(ptr_array_cnt[len]);
+            var count:i32 = i32(distcnt[len]);
             if (code - count < first) { /* if length len, return symbol */
                 var local_inded:i32 = index + (code - first);
-                return  DecodeRtn(ptr_array_sym[local_inded], len);
+                return  DecodeRtn(distsym[local_inded], len);
             }
             // else update for next length
             index += count;             
@@ -244,9 +243,44 @@ fn decode(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sy
     return DecodeRtn(0u, 0u);
 }
 
-fn decode_mutate(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>) -> u32
+fn decode_len(bitbuf_in:u32, left_in:u32) -> DecodeRtn
 {
-    var decode_res:DecodeRtn = decode(ptr_array_cnt, ptr_array_sym, ts.bitbuf, 32);
+    var bitbuf:u32  = bitbuf_in;
+    var left:u32  = left_in;
+    var code:i32 = 0; // len bits being decoded
+    var first:i32 = 0;  // first code of length len 
+    var index:i32 = 0; // index of first code of length len in symbol table 
+    var len:u32 = 1; // current number of bits in code
+    // This code is making a tree from lower(left) to larger(right) bits
+    // each bit adds another level to the tree ;increasing the available codes
+    // the count for this level removes these codes 
+    while (true) {
+        while (left !=0) {
+            code |= i32(bitbuf & 1);
+            bitbuf >>= 1;
+            // number of codes of length len 
+            var count:i32 = i32(lencnt[len]);
+            if (code - count < first) { /* if length len, return symbol */
+                var local_inded:i32 = index + (code - first);
+                return  DecodeRtn(lensym[local_inded], len);
+            }
+            // else update for next length
+            index += count;             
+            first += count;
+            first <<= 1;
+            code <<= 1;
+            len++;
+            left--;
+        }
+        return DecodeRtn(0u, 0u);
+
+    }
+    return DecodeRtn(0u, 0u);
+}
+
+fn decode_mutate_dist() -> u32
+{
+    var decode_res:DecodeRtn = decode_dist(ts.bitbuf, 32);
     if(decode_res.cnt == 0){
         ReportError(ERROR_RAN_OUT_OF_CODES);
     }
@@ -255,22 +289,31 @@ fn decode_mutate(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>> , ptr_a
     return decode_res.symbol;
 }
 
-fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>, 
-        ptr_array_sym: ptr<workgroup, array<u32, FIXLCODES>>,
-         offset:i32,  n:i32) -> i32 
+fn decode_mutate_len() -> u32
+{
+    var decode_res:DecodeRtn = decode_len(ts.bitbuf, 32);
+    if(decode_res.cnt == 0){
+        ReportError(ERROR_RAN_OUT_OF_CODES);
+    }
+    ts.bitbuf = ts.bitbuf >> decode_res.cnt;
+    ts.incnt = ts.incnt + decode_res.cnt;
+    return decode_res.symbol;
+}
+
+fn construct_code_dist(offset:i32,  n:i32) -> i32 
 {
     var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
 
     /* count number of codes of each length */
     for (var len:i32 = 0; len <= MAXBITS; len++) {
-        ptr_array_cnt[len] = 0;
+        distcnt[len] = 0;
     }
     /* current symbol when stepping through length[] */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
-        (ptr_array_cnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
+        (distcnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
     }
 
-    if (i32(ptr_array_cnt[0]) == n) {              /* no codes! */
+    if (i32(distcnt[0]) == n) {              /* no codes! */
         return 0;                       /* complete, but decode() will fail */
     }
 
@@ -279,7 +322,7 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
      /* current length when stepping through h->count[] */
     for (var len:i32 = 1; len <= MAXBITS; len++) {
         left <<= 1;                     /* one more bit, double codes left */
-        left -= i32(ptr_array_cnt[len]);          /* deduct count from possible codes */
+        left -= i32(distcnt[len]);          /* deduct count from possible codes */
         if (left < 0) {
             return left;                /* over-subscribed--return negative */
         }
@@ -288,7 +331,7 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
     /* generate offsets into symbol table for each length for sorting */
     offs[1] = 0;
     for (var len:i32 = 1; len < MAXBITS; len++) {
-        offs[len + 1] = offs[len] + i32(ptr_array_cnt[len]);
+        offs[len + 1] = offs[len] + i32(distcnt[len]);
     }
 
     /*
@@ -297,7 +340,7 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
      */
     for (var symbol:i32 = 0; symbol < n; symbol++) {
         if (lengths[symbol+offset] != 0) {
-            ptr_array_sym[offs[lengths[symbol+offset]]] = u32(symbol);
+            distsym[offs[lengths[symbol+offset]]] = u32(symbol);
             offs[lengths[symbol+offset]]++;
         }
     }
@@ -306,13 +349,61 @@ fn construct_code(ptr_array_cnt: ptr<workgroup, array<u32,  MAXBITS + 1>>,
     return left;
 }
 
+fn construct_code_len(offset:i32,  n:i32) -> i32 
+{
+    var  offs:array<i32, MAXBITS + 1>;        /* offsets in symbol table for each length */
+
+    /* count number of codes of each length */
+    for (var len:i32 = 0; len <= MAXBITS; len++) {
+        lencnt[len] = 0;
+    }
+    /* current symbol when stepping through length[] */
+    for (var symbol:i32 = 0; symbol < n; symbol++) {
+        (lencnt[lengths[symbol+offset]])++;   /* assumes lengths are within bounds */
+    }
+
+    if (i32(lencnt[0]) == n) {              /* no codes! */
+        return 0;                       /* complete, but decode() will fail */
+    }
+
+    /* check for an over-subscribed or incomplete set of lengths */
+    var left:i32 = 1;                           /* one possible code of zero length */
+     /* current length when stepping through h->count[] */
+    for (var len:i32 = 1; len <= MAXBITS; len++) {
+        left <<= 1;                     /* one more bit, double codes left */
+        left -= i32(lencnt[len]);          /* deduct count from possible codes */
+        if (left < 0) {
+            return left;                /* over-subscribed--return negative */
+        }
+    }                                   /* left > 0 means incomplete */
+
+    /* generate offsets into symbol table for each length for sorting */
+    offs[1] = 0;
+    for (var len:i32 = 1; len < MAXBITS; len++) {
+        offs[len + 1] = offs[len] + i32(lencnt[len]);
+    }
+
+    /*
+     * put symbols in table sorted by length, by symbol order within each
+     * length
+     */
+    for (var symbol:i32 = 0; symbol < n; symbol++) {
+        if (lengths[symbol+offset] != 0) {
+            lensym[offs[lengths[symbol+offset]]] = u32(symbol);
+            offs[lengths[symbol+offset]]++;
+        }
+    }
+
+    /* return zero for complete set, positive for incomplete set */
+    return left;
+}
 
 fn codex()
 {
     // bits from stream 
     Read32();
     // SLOW PATH none LUT
-    var symbol:u32 = decode_mutate(&lencnt, &lensym);
+    var symbol:u32 = decode_mutate_len();
 
     if (symbol < 256) { // literal: symbol is the byte 
         StreamWriteByteOut(symbol); // write out the literal 
@@ -328,7 +419,7 @@ fn codex()
             ReportError(ERROR_RAN_OUT_OF_CODES);       
         }
         var len:u32 = kLens[symbol] + bits_local(kLext[symbol]);
-        symbol = decode_mutate(&distcnt, &distsym);
+        symbol = decode_mutate_dist();
         // distance for copy 
         var dist:u32 = kDists[symbol] + bits_local(kDext[symbol]);
         // copy length bytes from distance bytes back
@@ -353,13 +444,13 @@ fn fixed()
     for (; symbol < FIXLCODES; symbol++) {
         lengths[symbol] = 8;
     }
-    construct_code(&lencnt, &lensym, 0, FIXLCODES);
+    construct_code_len(0, FIXLCODES);
 
     // distance table
     for (symbol = 0; symbol < MAXDCODES; symbol++) {
         lengths[symbol] = 5;
     }
-    construct_code(&distcnt, &distsym, 0, MAXDCODES);
+    construct_code_dist(0, MAXDCODES);
 }
 
 
@@ -390,7 +481,7 @@ fn dynamic()
     }
 
     /* build huffman table for code lengths codes (use lencode temporarily) */
-    if (construct_code(&lencnt, &lensym, 0 , 19) != 0) {
+    if (construct_code_len(0 , 19) != 0) {
         /* require complete code set here */
         ReportError(ERROR_REQUIRED_COMPLETE_CODE);
         return;
@@ -403,7 +494,7 @@ fn dynamic()
         var len:u32;                /* last length to repeat */
 
         Read32();
-        symbol = decode_mutate(&lencnt, &lensym);
+        symbol = decode_mutate_len();
         if (symbol < 0) {
             /* invalid symbol */
             ReportError(ERROR_INVALID_SYMBOL);
@@ -449,7 +540,7 @@ fn dynamic()
     }
 
     /* build huffman table for literal/length codes */
-    var err:i32 = construct_code(&lencnt, &lensym, 0, i32(nlen));
+    var err:i32 = construct_code_len(0, i32(nlen));
     if (err !=0  && (err < 0 || nlen != u32(lencnt[0] + lencnt[1]) )) {
         // incomplete code ok only for single length 1 code 
         ReportError(ERROR_INCOMPLETE_CODE_SINGLE);
@@ -457,7 +548,7 @@ fn dynamic()
     }
 
     /* build huffman table for distance codes */
-    err = construct_code(&distcnt, &distsym, i32(nlen),i32(ndist));
+    err = construct_code_dist(i32(nlen),i32(ndist));
     if (err !=0 && (err < 0 || ndist != u32(distcnt[0] + distcnt[1]) )) {
         // incomplete code ok only for single length 1 code 
         ReportError(ERROR_INCOMPLETE_CODE_SINGLE);
@@ -574,13 +665,14 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
             var tail_read = atomicLoad(&d_head_tail_complete_useless[D_TAIL_INDEX]);
             if(head_read > tail_read){
                 // lets see if we can grab as many as possible
-                // var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
-                var acquired_count = min(1, head_read- tail_read);
+                 var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
+                //var acquired_count = min(1, head_read- tail_read);
                 var new_tail = acquired_count + tail_read;
                 var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX],tail_read , new_tail);
                 if(cas.exchanged){
                     g_start_idx = tail_read;
                     g_start_count = acquired_count;
+           
                 }
             } else if(head_read == tail_read && main_dispatch_complete != 0){
                 last_block = 1;
