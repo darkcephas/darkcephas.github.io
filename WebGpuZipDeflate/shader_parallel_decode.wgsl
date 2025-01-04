@@ -39,7 +39,7 @@ var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
 const NUM_SLOTS = WORKGROUP_SIZE / 32u;
-const ROUND_LENGTH_BITS = 512u;
+const ROUND_LENGTH_BITS = 64u;
 
 // 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)
@@ -63,8 +63,8 @@ var<workgroup> g_incnt:atomic<u32>;
 // avoid contented atomics memory
 const D_STATE = 666;
 const D_IN_BITS = 0; 
-const D_OUT_BYTES = 33; 
-const D_OUT_DECODES = 33+33; 
+const D_OUT_BYTES = 35; 
+const D_OUT_DECODES = 35+35; 
 
 const D_USELESS_INDEX = 523;
 
@@ -531,7 +531,7 @@ fn codes(local_invocation_index:u32)
                     var thread_start_offset = diff_mod_32;
                     var end_of_block_found = (spec & (1<<31)) != 0;
                     var bits_diff = ((spec >> 14) & 0x3FF) - thread_start_offset;
-                    var num_decodes = ((spec >> 24) & 0x7F) - thread_start_offset;
+                    var num_decodes = ((spec >> 24) & 0x7F);
                     var bytes_round = spec & 0xFFFFF; 
                     
                     if(!ts.invocation_hit_end_of_block){
@@ -552,8 +552,10 @@ fn codes(local_invocation_index:u32)
             else {
                 slot_start += ROUND_LENGTH_BITS;
             }
+        }
 
-
+       storageBarrier();
+       if(local_invocation_index == 0) {
             if(ts.invocation_hit_end_of_block){
                 d_decode_control[D_STATE] = 2;
                 decode_done = 1;
@@ -590,7 +592,6 @@ fn codes_decode(local_invocation_index:u32)
     workgroupBarrier();
     if(local_invocation_index == 0){
         decode_done = 0;
-        ts.incnt = atomicLoad(&g_incnt);
     }
 
     var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
@@ -612,8 +613,7 @@ fn codes_decode(local_invocation_index:u32)
             if(uniform_state_control == 1){
                 break;
             }
-            else if(uniform_state_control == 2)
-            {
+            else if(uniform_state_control == 2){
                 return;// end of block
             }
         }
@@ -623,14 +623,18 @@ fn codes_decode(local_invocation_index:u32)
             decompress_out_bytes[local_invocation_index] = d_decode_control[D_OUT_BYTES + local_invocation_index];
             decompress_in_bits[local_invocation_index] = d_decode_control[D_IN_BITS + local_invocation_index];
             decompress_out_decodes[local_invocation_index] = d_decode_control[D_OUT_DECODES + local_invocation_index];
-            DebugWrite(1000000 + local_invocation_index);
-            DebugWrite(decompress_in_bits[local_invocation_index]);
         }
         storageBarrier();
-         d_decode_control[D_STATE] = 0;
-         storageBarrier();
+        d_decode_control[D_STATE] = 0;
+        storageBarrier();
         workgroupBarrier();
 
+       if(local_invocation_index == 0){
+             for(var i = 0u; i <33u; i++){
+                DebugWrite( 10000000 + i);
+                DebugWrite(decompress_out_decodes[i]);
+            }
+        }
 
         if(local_invocation_index % 32 == 0){
             ts.incnt = decompress_in_bits[local_invocation_index/32];
@@ -638,7 +642,9 @@ fn codes_decode(local_invocation_index:u32)
         }
         workgroupBarrier();
         if(local_invocation_index % 32 == 0){
-            for(var decode_i = decompress_in_bits[local_invocation_index/32]; decode_i <= decompress_in_bits[1+(local_invocation_index/32)];decode_i++){
+            for(var decode_i = decompress_out_decodes[local_invocation_index/32]; 
+                    decode_i < decompress_out_decodes[1+(local_invocation_index/32)];
+                        decode_i++){
                 codex();
                 var is_copy = 0u;
                 if(ts.decode_is_copy){
@@ -652,10 +658,13 @@ fn codes_decode(local_invocation_index:u32)
         storageBarrier();
         workgroupBarrier();
         if(local_invocation_index == 0){
-             for(var decode_i = decompress_in_bits[0]; decode_i <= decompress_in_bits[32]; decode_i++){
+             for(var decode_i = decompress_out_decodes[0]; 
+                    decode_i < decompress_out_decodes[32]; 
+                        decode_i++){
                 var combined = d_decode_buff[decode_i];
                 var val = combined & 0xFFFF;
                 var len_bytes = (combined >> 16) & 0x3FFF;
+   
                 if( (combined & (1<<31)) == 0) {
                     WriteByteOut(val, total_bytes);
                 }
