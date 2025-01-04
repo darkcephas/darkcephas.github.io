@@ -92,7 +92,8 @@ window.onload = async function () {
     requiredFeatures: ["timestamp-query"],
     requiredLimits: {
       maxComputeInvocationsPerWorkgroup:1024,
-      maxComputeWorkgroupSizeX:1024
+      maxComputeWorkgroupSizeX:1024,
+      maxComputeWorkgroupStorageSize:32768
     }
   });
 
@@ -419,7 +420,7 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(1);
+  computePass.dispatchWorkgroups(2);
   if(false){ //renderBufferPipeline_decompress){
     computePass.setPipeline(renderBufferPipeline_decompress);
     computePass.setBindGroup(0, commonBindGroup);

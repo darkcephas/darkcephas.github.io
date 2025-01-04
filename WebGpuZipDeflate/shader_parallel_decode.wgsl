@@ -13,7 +13,6 @@ struct ThreadState {
      decode_len: u32, // 1 if val n if copy
      decode_is_copy:bool,
      invocation_hit_end_of_block:bool,
-     is_output_dispatch: bool
 } ;
 
 var<private> ts : ThreadState;
@@ -40,7 +39,7 @@ var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
 const NUM_SLOTS = WORKGROUP_SIZE / 32u;
-const ROUND_LENGTH_BITS = 256u;
+const ROUND_LENGTH_BITS = 512u;
 
 // 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)
@@ -56,16 +55,19 @@ var<workgroup> g_incnt:atomic<u32>;
 @group(0) @binding(2) var<uniform> unidata: CommonData;
 @group(0) @binding(3) var<storage,read_write> debug: array<u32>;
 // Data for decoded -> store phase
-const MAX_NUMBER_DEFLATE_BLOCKS = 1024*1024;
-@group(0) @binding(4) var<storage, read_write>  d_start_inc_and_bytes:array<u32, MAX_NUMBER_DEFLATE_BLOCKS>;      
+
+@group(0) @binding(4) var<storage, read_write>  d_decode_buff:array<u32,1024*1024>;
 // cleanest way to get all this atomics into one storage.. :(      
-@group(0) @binding(5) var<storage, read_write> d_head_tail_complete_useless:array<atomic<u32>, 1024>;   
+@group(0) @binding(5) var<storage, read_write> d_decode_control:array<u32, 1024>;   
 
 // avoid contented atomics memory
-const D_HEAD_INDEX = 0;
-const D_TAIL_INDEX = 128;
-const D_COMPLETE_INDEX = 256;
-const D_USELESS_INDEX = 256+128;
+const D_STATE = 666;
+const D_IN_BITS = 0; 
+const D_OUT_BYTES = 33; 
+const D_OUT_DECODES = 33+33; 
+
+const D_USELESS_INDEX = 523;
+
 
 var<workgroup> ws : CommonData;
 
@@ -163,14 +165,14 @@ fn StreamCopyBytes( dist:u32, len:u32)
 }
 
 
-fn CopyBytes( dist:u32, len:u32,  byte_start:u32) 
+fn CopyBytes( dist:u32, len:u32, byte_start:u32) 
 {
     var len_tmp = len;
     var counter_local:u32 = 0;
     while (len_tmp != 0) {
         len_tmp--;
-        var val:u32 = PeekByteOut(dist, byte_start+ counter_local);
-        WriteByteOut(val, byte_start+ counter_local);
+        var val:u32 = PeekByteOut(dist, byte_start + counter_local);
+        WriteByteOut(val, byte_start + counter_local);
         counter_local++;
     }
     return;
@@ -441,9 +443,7 @@ var<workgroup> decode_done:u32;
 
 // We can collect 32 at a time since we have only 32 possible stream rounds
 // TODO implement!
-var<workgroup>  collect_num_bytes:array<u32, NUM_SLOTS>;
-var<workgroup>  collect_incnt:array<u32, NUM_SLOTS>;
-var<workgroup>  collect_end_block:array<u32, NUM_SLOTS>;
+var<workgroup> d_data_state:u32;
 
 fn codes(local_invocation_index:u32)
 {
@@ -455,12 +455,14 @@ fn codes(local_invocation_index:u32)
 
     var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
 
-    var total_bytes = 0u;
+    var total_bytes = ts.outcnt;
+    var total_decodes = 0u;
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
+        var start_incnt = ts.incnt;
         if(local_invocation_index == 0){
-           // do nothing
+           // zeroth abs position state
         }
         else{
             ts.incnt = slot_start + (local_invocation_index % 32u);
@@ -468,23 +470,38 @@ fn codes(local_invocation_index:u32)
         var local_num_bytes = 0u;
         ts.invocation_hit_end_of_block = false;
    
-
+        var local_num_decodes = 0u;
         while(true){
             codex();
             local_num_bytes += ts.decode_len;
-
+            local_num_decodes++;
             var local_bits_diff = ts.incnt - slot_start;
             if(local_bits_diff >= ROUND_LENGTH_BITS || ts.invocation_hit_end_of_block){
-                var thread_start_offset = local_invocation_index % 32u;
-                local_bits_diff =  local_bits_diff - (thread_start_offset);
+                local_bits_diff =  local_bits_diff;
                 // we have gone at least 256 bits 
                 var end_of_block_flag =  0u;
-                if(ts.invocation_hit_end_of_block)
-                {
+                if(ts.invocation_hit_end_of_block) {
                     end_of_block_flag = (1u<<31u);
                 }
                 var thread_to_slot_idx = local_invocation_index / 32u; // 0-7
-                spec_offsets[thread_to_slot_idx][thread_start_offset]  = end_of_block_flag | (local_bits_diff<<20) | local_num_bytes;
+                var thread_start_offset = local_invocation_index % 32u;
+                  // 1 - end block,  7 -  spec_decode_idx,  10 - local_bits_diff, 14 - local num bytes
+                spec_offsets[thread_to_slot_idx][thread_start_offset]  = end_of_block_flag | (local_bits_diff<<14) | local_num_bytes | (local_num_decodes<<24);
+                break;
+            }
+        }
+
+
+        workgroupBarrier();
+
+        while(true){
+            if(local_invocation_index == 0){
+                d_data_state = d_decode_control[D_STATE];
+            }
+
+            storageBarrier();
+            var uniform_state_control = workgroupUniformLoad(&d_data_state);
+            if(uniform_state_control == 0){
                 break;
             }
         }
@@ -495,7 +512,15 @@ fn codes(local_invocation_index:u32)
         const bool_as_single_threaded = false;
       
         if(local_invocation_index == 0) {
+            d_decode_control[D_IN_BITS + 0] = start_incnt;
+            d_decode_control[D_OUT_DECODES + 0] = total_decodes;
+            d_decode_control[D_OUT_BYTES + 0] = total_bytes;
             total_bytes += local_num_bytes;
+            total_decodes += local_num_decodes;
+            d_decode_control[D_IN_BITS + 1] = ts.incnt;
+            d_decode_control[D_OUT_DECODES + 1] = total_decodes;
+            d_decode_control[D_OUT_BYTES + 1] = total_bytes;
+
             if(!bool_as_single_threaded){
                 for(var i=1u; i < NUM_SLOTS; i++) {
                     var diff_bits = ts.incnt - (slot_start + ROUND_LENGTH_BITS*i);
@@ -503,14 +528,20 @@ fn codes(local_invocation_index:u32)
                     // pick from speculative. Each index is thread/subthread
                     var spec = spec_offsets[i][diff_mod_32];
                     
+                    var thread_start_offset = diff_mod_32;
                     var end_of_block_found = (spec & (1<<31)) != 0;
-                    var bits_diff = (spec >> 20) & 0x7FF;
+                    var bits_diff = ((spec >> 14) & 0x3FF) - thread_start_offset;
+                    var num_decodes = ((spec >> 24) & 0x7F) - thread_start_offset;
                     var bytes_round = spec & 0xFFFFF; 
                     
-                  
                     if(!ts.invocation_hit_end_of_block){
                         ts.incnt +=  bits_diff;
                         total_bytes += bytes_round;
+                        total_decodes += num_decodes;
+                        d_decode_control[D_IN_BITS + 1 + i] = ts.incnt;
+                        d_decode_control[D_OUT_DECODES + 1 + i] = total_decodes;
+                        d_decode_control[D_OUT_BYTES + 1 + i] = total_bytes;
+                        
                     }
 
                     if(end_of_block_found){
@@ -522,8 +553,14 @@ fn codes(local_invocation_index:u32)
                 slot_start += ROUND_LENGTH_BITS;
             }
 
+
             if(ts.invocation_hit_end_of_block){
+                d_decode_control[D_STATE] = 2;
                 decode_done = 1;
+            }
+            else
+            {
+                d_decode_control[D_STATE] = 1;
             }
         }
 
@@ -536,11 +573,99 @@ fn codes(local_invocation_index:u32)
         if(workgroupUniformLoad(&decode_done) != 0){
           if(local_invocation_index == 0) {
             atomicStore(&g_incnt, ts.incnt);
-            ts.outcnt += total_bytes;
+            ts.outcnt = total_bytes;
           }
           workgroupBarrier();
           break;
         }
+    }
+}
+    
+var<workgroup> decompress_in_bits:array<u32, 33>;
+var<workgroup> decompress_out_decodes:array<u32, 33>;
+var<workgroup> decompress_out_bytes:array<u32, 33>;
+
+fn codes_decode(local_invocation_index:u32)
+{
+    workgroupBarrier();
+    if(local_invocation_index == 0){
+        decode_done = 0;
+        ts.incnt = atomicLoad(&g_incnt);
+    }
+
+    var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
+
+    var total_bytes = 0u;
+    var total_decodes = 0u;
+    workgroupBarrier();
+    // decode literals and length/distance pairs 
+    while(true) {
+        // multi invocation copy to workgroup storage
+        workgroupBarrier();
+        while(true){
+            if(local_invocation_index == 0){
+                d_data_state = d_decode_control[D_STATE];
+            }
+
+            storageBarrier();
+            var uniform_state_control = workgroupUniformLoad(&d_data_state);
+            if(uniform_state_control == 1){
+                break;
+            }
+            else if(uniform_state_control == 2)
+            {
+                return;// end of block
+            }
+        }
+
+        // 0 ... 32 
+        if( local_invocation_index <= 32){
+            decompress_out_bytes[local_invocation_index] = d_decode_control[D_OUT_BYTES + local_invocation_index];
+            decompress_in_bits[local_invocation_index] = d_decode_control[D_IN_BITS + local_invocation_index];
+            decompress_out_decodes[local_invocation_index] = d_decode_control[D_OUT_DECODES + local_invocation_index];
+            DebugWrite(1000000 + local_invocation_index);
+            DebugWrite(decompress_in_bits[local_invocation_index]);
+        }
+        storageBarrier();
+         d_decode_control[D_STATE] = 0;
+         storageBarrier();
+        workgroupBarrier();
+
+
+        if(local_invocation_index % 32 == 0){
+            ts.incnt = decompress_in_bits[local_invocation_index/32];
+            ts.outcnt = decompress_out_bytes[local_invocation_index/32];
+        }
+        workgroupBarrier();
+        if(local_invocation_index % 32 == 0){
+            for(var decode_i = decompress_in_bits[local_invocation_index/32]; decode_i <= decompress_in_bits[1+(local_invocation_index/32)];decode_i++){
+                codex();
+                var is_copy = 0u;
+                if(ts.decode_is_copy){
+                    is_copy = 1<<31;
+                }
+                var combined = ts.decode_to_store | (ts.decode_len << 16) | is_copy;
+                d_decode_buff[decode_i] = combined;
+            }
+        }
+
+        storageBarrier();
+        workgroupBarrier();
+        if(local_invocation_index == 0){
+             for(var decode_i = decompress_in_bits[0]; decode_i <= decompress_in_bits[32]; decode_i++){
+                var combined = d_decode_buff[decode_i];
+                var val = combined & 0xFFFF;
+                var len_bytes = (combined >> 16) & 0x3FFF;
+                if( (combined & (1<<31)) == 0) {
+                    WriteByteOut(val, total_bytes);
+                }
+                else {
+                    CopyBytes(val, len_bytes, total_bytes);
+                }
+                total_bytes += len_bytes;
+             }
+        }
+        workgroupBarrier();
     }
 }
     
@@ -680,86 +805,11 @@ var<workgroup> last_block:u32;
 var<workgroup> g_start_idx:u32;
 var<workgroup> g_start_count:u32;
 
-
-fn codes_decode(local_invocation_index:u32)
-{
-    ts.invocation_hit_end_of_block = false;
-    var counter = 0u;
-    while(true) {
-        counter++;
-        codex();
-        if(ts.invocation_hit_end_of_block){
-            break;
-        }
-        else if(ts.decode_is_copy){
-            CopyBytes( ts.decode_to_store, ts.decode_len, ts.outcnt);
-            ts.outcnt += ts.decode_len;
-        }
-        else{
-            WriteByteOut(ts.decode_to_store, ts.outcnt);
-            ts.outcnt += ts.decode_len;
-        }
-    }
-}
-    
-fn puff_decode( dictlen:u32,         // length of custom dictionary
-    destlen:u32,        /* amount of output space */
-    sourcelen:u32, /* amount of input available */
-    local_invocation_index:u32)     
-    -> i32
-{
-    if(local_invocation_index >= g_start_count){
-        return 0; //keep only active threads
-    }
-   
-    ts.err = 0;                    /* return value */
-
-    /* initialize output state */
-    ws.outlen = destlen;                /* ignored if dest is NIL */
-
-    /* initialize input state */
-    ws.inlen = sourcelen;
-    ts.bitbuf = 0;
-    ts.incnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2];
-    ts.outcnt = d_start_inc_and_bytes[(g_start_idx + local_invocation_index) * 2 + 1];
-
-    // This only does 1 block per invocation. 
-    Read32();
-    var last:u32 = bits(1);         /* one if last block */
-    var type_now:u32 = bits(2);         /* block type_now 0..3 */
-    var is_store = false;
-    if (type_now == 0) {
-        stored();
-        is_store = true; // not supported anyway
-        ts.err = -1;
-    }
-    else
-    {
-        if (type_now == 1) {
-            fixed();
-            debug[7]++;
-        }
-        else if (type_now == 2) {
-            dynamic();
-            debug[8]++;
-        }
-        else {
-            // type_now == 3, invalid
-            ts.err = -1;
-        }
-    }
-  
-    codes_decode(local_invocation_index);
-    debug[9] = u32( ts.err);
-    return ts.err;
-}
-
-
-
 fn puff( dictlen:u32,         // length of custom dictionary
     destlen:u32,        /* amount of output space */
     sourcelen:u32, /* amount of input available */
-    local_invocation_index:u32)     
+    local_invocation_index:u32,
+    workgroup_id:u32)     
     -> i32
 {
     ts.err = 0;                    /* return value */
@@ -773,48 +823,31 @@ fn puff( dictlen:u32,         // length of custom dictionary
     ts.incnt = 0;
     ts.bitbuf = 0;
 
+    var wg_offset_debug = 0;
+    if(workgroup_id == 1){
+        wg_offset_debug = 5;
+    }
     while(true) {
         // Only the first invocation does all the init table work 
         storageBarrier();
-        var block_counter = 0u;
         if(local_invocation_index == 0){
-            block_counter = atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]);
-        }
-        storageBarrier();
-        if(local_invocation_index == 0){
-            d_start_inc_and_bytes[block_counter*2+0] = ts.incnt;
-            d_start_inc_and_bytes[block_counter*2+1] = ts.outcnt;
-        }
-        storageBarrier();
-        if(local_invocation_index == 0){
-            while(true) {
-                var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_HEAD_INDEX], block_counter, block_counter+1);
-                if(!cas.exchanged){
-                    block_counter = cas.old_value; 
-                }
-                else {
-                    break;
-                }
-            }
-
-
             Read32();
             var last:u32 = bits(1);         /* one if last block */
             var type_now:u32 = bits(2);         /* block type_now 0..3 */
             var is_store = false;
             if (type_now == 0) {
-                debug[3]++;
+                debug[3 + wg_offset_debug]++;
                 stored();
                 is_store = true; // not supported anyway
             }
             else
             {
                 if (type_now == 1) {
-                    debug[1]++;
+                    debug[1 + wg_offset_debug]++;
                     fixed();
                 }
                 else if (type_now == 2) {
-                    debug[2]++;
+                    debug[2 + wg_offset_debug]++;
                     dynamic();
                 }
                 else {
@@ -827,11 +860,16 @@ fn puff( dictlen:u32,         // length of custom dictionary
             atomicStore(&g_incnt, ts.incnt);
         }
 
-
+        last_block = 1;
         workgroupBarrier();
         GenLut(local_invocation_index);
         workgroupBarrier();
-        codes(local_invocation_index);
+        if(workgroup_id >0){
+            codes_decode(local_invocation_index);
+        }
+        else{
+            codes(local_invocation_index);
+        }
         workgroupBarrier();
         
 
@@ -847,53 +885,16 @@ fn puff( dictlen:u32,         // length of custom dictionary
 fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-    ts.is_output_dispatch = workgroup_id.x > 0; // only first one plays a role
+
     if( workgroup_id.x > 0){
         atomicStore(&atomic_idx, 100);
-        last_block = 0;
-        while(workgroupUniformLoad(&last_block) == 0) {
-            workgroupBarrier();
-            storageBarrier();
-            var main_dispatch_complete = 0u;
-            if(local_invocation_index == 0){
-                g_start_count = 0;
-                // order here is important
-                main_dispatch_complete = atomicLoad(&d_head_tail_complete_useless[D_COMPLETE_INDEX]);
-            }
-            storageBarrier();
-            var head_read = 0u;
-            if(local_invocation_index == 0){
-                head_read = atomicLoad(&d_head_tail_complete_useless[D_HEAD_INDEX]);
-            }
-            storageBarrier();
-            if(local_invocation_index == 0){
-                var tail_read = atomicLoad(&d_head_tail_complete_useless[D_TAIL_INDEX]);
-                if(head_read > tail_read){
-                    // lets see if we can grab as many as possible
-                   // var acquired_count = min(WORKGROUP_SIZE, head_read- tail_read);
-                    var acquired_count = min(1, head_read- tail_read);
-                    var new_tail = acquired_count + tail_read;
-                    var cas = atomicCompareExchangeWeak(&d_head_tail_complete_useless[D_TAIL_INDEX],tail_read , new_tail);
-                    if(cas.exchanged){
-                        g_start_idx = tail_read;
-                        g_start_count = acquired_count;
-                    }
-                } else if(head_read == tail_read && main_dispatch_complete != 0){
-                    last_block = 1;
-                }
-            }
-
-            puff_decode(0, unidata.outlen, unidata.inlen, local_invocation_index);
-  
-            workgroupBarrier();
-            atomicAdd(&d_head_tail_complete_useless[D_USELESS_INDEX], 1);
-        }
-        return;
     }
-    else {
+    else
+    {
         atomicStore(&atomic_idx, 20);
-        puff(0,unidata.outlen, unidata.inlen, local_invocation_index);
-        storageBarrier();
-        atomicStore(&d_head_tail_complete_useless[D_COMPLETE_INDEX],1); 
     }
+    
+    puff(0,unidata.outlen, unidata.inlen, local_invocation_index, workgroup_id.x);
+            storageBarrier();
+
 }
