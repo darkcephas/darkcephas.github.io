@@ -49,6 +49,7 @@ var<workgroup> spec_offsets:array<array<u32, 32u>, NUM_SLOTS>;
 // read encoded stream serializer
 var<workgroup> g_incnt:atomic<u32>;
 
+var<workgroup> g_outcnt:atomic<u32>;
 
 @group(0) @binding(0) var<storage> in: array<u32>;
 @group(0) @binding(1) var<storage,read_write> out: array<atomic<u32>>;
@@ -538,11 +539,13 @@ fn codes(local_invocation_index:u32)
                         ts.incnt +=  bits_diff;
                         total_bytes += bytes_round;
                         total_decodes += num_decodes;
-                        d_decode_control[D_IN_BITS + 1 + i] = ts.incnt;
-                        d_decode_control[D_OUT_DECODES + 1 + i] = total_decodes;
-                        d_decode_control[D_OUT_BYTES + 1 + i] = total_bytes;
-                        
                     }
+                    // always write this even if we are not adding more
+                    d_decode_control[D_IN_BITS + 1 + i] = ts.incnt;
+                    d_decode_control[D_OUT_DECODES + 1 + i] = total_decodes;
+                    d_decode_control[D_OUT_BYTES + 1 + i] = total_bytes;
+                        
+                  
 
                     if(end_of_block_found){
                         ts.invocation_hit_end_of_block = true;
@@ -594,8 +597,6 @@ fn codes_decode(local_invocation_index:u32)
         decode_done = 0;
     }
 
-    var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
-
     var total_bytes = 0u;
     var total_decodes = 0u;
     workgroupBarrier();
@@ -614,10 +615,15 @@ fn codes_decode(local_invocation_index:u32)
                 break;
             }
             else if(uniform_state_control == 2){
-                return;// end of block
+                decode_done = 1;
+                break;
             }
         }
+  
 
+
+
+ 
         // 0 ... 32 
         if( local_invocation_index <= 32){
             decompress_out_bytes[local_invocation_index] = d_decode_control[D_OUT_BYTES + local_invocation_index];
@@ -628,13 +634,6 @@ fn codes_decode(local_invocation_index:u32)
         d_decode_control[D_STATE] = 0;
         storageBarrier();
         workgroupBarrier();
-
-       if(local_invocation_index == 0){
-             for(var i = 0u; i <33u; i++){
-                DebugWrite( 10000000 + i);
-                DebugWrite(decompress_out_decodes[i]);
-            }
-        }
 
         if(local_invocation_index % 32 == 0){
             ts.incnt = decompress_in_bits[local_invocation_index/32];
@@ -658,6 +657,7 @@ fn codes_decode(local_invocation_index:u32)
         storageBarrier();
         workgroupBarrier();
         if(local_invocation_index == 0){
+             total_bytes = atomicLoad(&g_outcnt);
              for(var decode_i = decompress_out_decodes[0]; 
                     decode_i < decompress_out_decodes[32]; 
                         decode_i++){
@@ -673,8 +673,17 @@ fn codes_decode(local_invocation_index:u32)
                 }
                 total_bytes += len_bytes;
              }
+              atomicStore(&g_outcnt, total_bytes);
         }
         workgroupBarrier();
+
+        if(workgroupUniformLoad(&decode_done) != 0){
+          if(local_invocation_index == 0) {
+            ts.incnt = decompress_in_bits[32];
+          }
+          workgroupBarrier();
+          return;
+        }
     }
 }
     
@@ -869,7 +878,7 @@ fn puff( dictlen:u32,         // length of custom dictionary
             atomicStore(&g_incnt, ts.incnt);
         }
 
-        last_block = 1;
+       
         workgroupBarrier();
         GenLut(local_invocation_index);
         workgroupBarrier();
@@ -880,7 +889,6 @@ fn puff( dictlen:u32,         // length of custom dictionary
             codes(local_invocation_index);
         }
         workgroupBarrier();
-        
 
         if(workgroupUniformLoad(&last_block) != 0){
           break;
