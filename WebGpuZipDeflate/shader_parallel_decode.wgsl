@@ -446,6 +446,8 @@ var<workgroup> decode_done:u32;
 // TODO implement!
 var<workgroup> d_data_state:u32;
 
+const CODE_END_OF_BLOCK_FLAG = 1u<<31u;
+
 fn codes(local_invocation_index:u32)
 {
     workgroupBarrier();
@@ -482,7 +484,7 @@ fn codes(local_invocation_index:u32)
                 // we have gone at least 256 bits 
                 var end_of_block_flag =  0u;
                 if(ts.invocation_hit_end_of_block) {
-                    end_of_block_flag = (1u<<31u);
+                    end_of_block_flag = CODE_END_OF_BLOCK_FLAG;
                 }
                 var thread_to_slot_idx = local_invocation_index / 32u; // 0-7
                 var thread_start_offset = local_invocation_index % 32u;
@@ -530,7 +532,7 @@ fn codes(local_invocation_index:u32)
                     var spec = spec_offsets[i][diff_mod_32];
                     
                     var thread_start_offset = diff_mod_32;
-                    var end_of_block_found = (spec & (1<<31)) != 0;
+                    var end_of_block_found = (spec & CODE_END_OF_BLOCK_FLAG) != 0;
                     var bits_diff = ((spec >> 14) & 0x3FF) - thread_start_offset;
                     var num_decodes = ((spec >> 24) & 0x7F);
                     var bytes_round = spec & 0xFFFFF; 
@@ -544,8 +546,6 @@ fn codes(local_invocation_index:u32)
                     d_decode_control[D_IN_BITS + 1 + i] = ts.incnt;
                     d_decode_control[D_OUT_DECODES + 1 + i] = total_decodes;
                     d_decode_control[D_OUT_BYTES + 1 + i] = total_bytes;
-                        
-                  
 
                     if(end_of_block_found){
                         ts.invocation_hit_end_of_block = true;
@@ -616,12 +616,10 @@ fn codes_decode(local_invocation_index:u32)
             }
             else if(uniform_state_control == 2){
                 decode_done = 1;
+                // Return after this cycle of data.
                 break;
             }
         }
-  
-
-
 
  
         // 0 ... 32 
@@ -819,7 +817,6 @@ fn dynamic()
 
 
 var<workgroup> last_block:u32;
-
 var<workgroup> g_start_idx:u32;
 var<workgroup> g_start_count:u32;
 
@@ -903,7 +900,7 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
 
-    if( workgroup_id.x > 0){
+    if( workgroup_id.x == 1){
         atomicStore(&atomic_idx, 100);
     }
     else

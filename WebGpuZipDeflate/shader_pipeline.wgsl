@@ -391,7 +391,6 @@ fn  codes()
         }
         // bits from stream 
         Ensure16();
-
         var lut_len_res:u32 = lenLut[ts.bitbuf & 0x3FF];
         if(lut_len_res == 0){ 
             // SLOW PATH none LUT

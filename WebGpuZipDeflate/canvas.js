@@ -17,7 +17,7 @@ var radioByteElement;
 var radioShaderLUTElement;
 var radioShaderPipelineElement;
 var radioShaderParallelElement;
-const kDebugArraySize = 1024*16;
+const kDebugArraySize = 1024*256;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
 
