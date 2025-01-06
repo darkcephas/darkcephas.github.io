@@ -70,7 +70,7 @@ const D_IN_BITS = 0;
 const D_OUT_BYTES = 35; 
 const D_OUT_DECODES = 35+35; 
 
-const D_USELESS_INDEX = 523;
+const D_DECOMPRESS_BUFS_STATE = 800;
 
 
 var<workgroup> ws : CommonData;
@@ -611,9 +611,11 @@ fn codes_decode(local_invocation_index:u32)
         workgroupBarrier();
         while(true){
             if(local_invocation_index == 0){
-                d_data_state = d_decode_control[D_STATE];
+                var input_state = d_decode_control[D_STATE];
+                var decomp_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
+                d_data_state = input_state;
             }
-
+            workgroupBarrier();
             storageBarrier();
             var uniform_state_control = workgroupUniformLoad(&d_data_state);
             if(uniform_state_control == 1){
@@ -626,7 +628,8 @@ fn codes_decode(local_invocation_index:u32)
             }
         }
 
- 
+        storageBarrier();
+        workgroupBarrier();
         // 0 ... 32 
         if( local_invocation_index <= 32){
             decompress_out_bytes[local_invocation_index] = d_decode_control[D_OUT_BYTES + local_invocation_index];
@@ -661,28 +664,7 @@ fn codes_decode(local_invocation_index:u32)
         }
 
         storageBarrier();
-        workgroupBarrier();
-        if(local_invocation_index == 0){
-
-             for(var decode_i = decompress_out_decodes[0]; 
-                    decode_i < decompress_out_decodes[32]; 
-                        decode_i++){
-                var combined = d_decode_buff[0][0][decode_i];
-                var byte_offset = d_decode_buff[0][1][decode_i];
-                var val = combined & 0xFFFF;
-                var len_bytes = (combined >> 16) & 0x3FFF;
-                if(len_bytes == 0){
-                    // This is a decode for a end of block
-                }
-                else if( (combined & (1<<31)) == 0) {
-                    WriteByteOut(val, byte_offset);
-                }
-                else {
-                    CopyBytes(val, len_bytes, byte_offset);
-                }
-             }
-             
-        }
+        d_decode_control[D_DECOMPRESS_BUFS_STATE] = decompress_out_decodes[32] - decompress_out_decodes[0];
         workgroupBarrier();
 
         if(workgroupUniformLoad(&decode_done) != 0){
@@ -695,6 +677,68 @@ fn codes_decode(local_invocation_index:u32)
     }
 }
     
+
+fn decompressx(local_invocation_index:u32)
+{
+    workgroupBarrier();
+    var counter = 0u;
+    // decode literals and length/distance pairs 
+    while(true) {
+        // multi invocation copy to workgroup storage
+        workgroupBarrier();
+        storageBarrier();
+        while(true){
+            if(local_invocation_index == 0){
+                counter++;
+                d_data_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
+                if(counter > 10000){
+                    d_data_state = 0xFFFFFFFF;
+                }
+            }
+            workgroupBarrier();
+            storageBarrier();
+            var uniform_state_control = workgroupUniformLoad(&d_data_state);
+            if(uniform_state_control == 0xFFFFFFFF){
+                // end signal
+                return;
+            }
+            else if(uniform_state_control != 0){
+                // new data
+                break;
+            }
+        }
+        storageBarrier();
+        workgroupBarrier();
+        if(false && local_invocation_index == 0){
+            var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];
+             for(var decode_i = 0u; 
+                    decode_i < num_decodes; 
+                        decode_i++){
+                var combined = d_decode_buff[0][0][decode_i];
+                var byte_offset = d_decode_buff[0][1][decode_i];
+                var val = combined & 0xFFFF;
+                var len_bytes = (combined >> 16) & 0x3FFF;
+                if(len_bytes == 0){
+                    // This is a decode for a end of block. A end of code block is a decode
+                }
+                else if( (combined & (1<<31)) == 0) {
+                    WriteByteOut(val, byte_offset);
+                }
+                else {
+                    CopyBytes(val, len_bytes, byte_offset);
+                }
+             }
+             
+        }
+        workgroupBarrier();
+        storageBarrier();
+        workgroupBarrier();
+        //d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0;
+        workgroupBarrier();
+        storageBarrier();
+    }
+}
+       
     
 fn fixed()
 {
@@ -913,12 +957,43 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
     if( workgroup_id.x == 1){
         atomicStore(&atomic_idx, 100);
     }
+    else if( workgroup_id.x == 2){
+        atomicStore(&atomic_idx, 200);
+        decompressx(local_invocation_index);
+    }
     else
     {
         atomicStore(&atomic_idx, 20);
     }
     
-    puff(0,unidata.outlen, unidata.inlen, local_invocation_index, workgroup_id.x);
+    if(workgroup_id.x == 1 || workgroup_id.x == 0){
+        puff(0,unidata.outlen, unidata.inlen, local_invocation_index, workgroup_id.x);
+                storageBarrier();
+    }
+
+ 
+    if( workgroup_id.x == 1){
+        var counter = 0u;
+        d_data_state = 0;
+         while(true){
+            
+            if(local_invocation_index == 0){
+                counter++;
+                var decomp_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
+                if(decomp_state == 0 || counter > 100000){
+                    d_data_state = 1;
+                }
+            }
+            workgroupBarrier();
             storageBarrier();
+            var uniform_state_control = workgroupUniformLoad(&d_data_state);
+            if(uniform_state_control == 1){
+                 if(local_invocation_index == 0){
+                     d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0xFFFFFFFF;
+                 }
+                break;
+            }
+        }
+    }
 
 }

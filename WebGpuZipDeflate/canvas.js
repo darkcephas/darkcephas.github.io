@@ -420,7 +420,7 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
-  computePass.dispatchWorkgroups(renderBufferPipeline_decompress ? 2 :1);
+  computePass.dispatchWorkgroups(renderBufferPipeline_decompress ? 3 :1);
   if(false){ //renderBufferPipeline_decompress){
     computePass.setPipeline(renderBufferPipeline_decompress);
     computePass.setBindGroup(0, commonBindGroup);
