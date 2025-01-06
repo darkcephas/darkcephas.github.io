@@ -378,6 +378,7 @@ fn codex()
         else if (symbol == 256){  
             // end of block symbol 
             ts.invocation_hit_end_of_block = true;
+            ts.decode_is_copy = false;
             ts.decode_len = 0;
         } 
         else if (symbol > 256) {     
@@ -406,6 +407,7 @@ fn codex()
         else if (symbol == 256){ 
             // end of block symbol 
             ts.invocation_hit_end_of_block = true;
+            ts.decode_is_copy = false;
             ts.decode_len = 0;
         } 
         else if (symbol > 256) {     
@@ -476,6 +478,7 @@ fn codes(local_invocation_index:u32)
         var local_num_decodes = 0u;
         while(true){
             codex();
+
             local_num_bytes += ts.decode_len;
             local_num_decodes++;
             var local_bits_diff = ts.incnt - slot_start;
@@ -662,8 +665,10 @@ fn codes_decode(local_invocation_index:u32)
                 var combined = d_decode_buff[decode_i];
                 var val = combined & 0xFFFF;
                 var len_bytes = (combined >> 16) & 0x3FFF;
-   
-                if( (combined & (1<<31)) == 0) {
+                if(len_bytes == 0){
+                    // This is a decode for a end of block
+                }
+                else if( (combined & (1<<31)) == 0) {
                     WriteByteOut(val, total_bytes);
                 }
                 else {
