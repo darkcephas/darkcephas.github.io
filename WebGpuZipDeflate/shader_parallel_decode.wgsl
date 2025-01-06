@@ -681,7 +681,6 @@ fn codes_decode(local_invocation_index:u32)
 fn decompressx(local_invocation_index:u32)
 {
     workgroupBarrier();
-    var counter = 0u;
     // decode literals and length/distance pairs 
     while(true) {
         // multi invocation copy to workgroup storage
@@ -689,11 +688,7 @@ fn decompressx(local_invocation_index:u32)
         storageBarrier();
         while(true){
             if(local_invocation_index == 0){
-                counter++;
                 d_data_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
-                if(counter > 10000){
-                    d_data_state = 0xFFFFFFFF;
-                }
             }
             workgroupBarrier();
             storageBarrier();
