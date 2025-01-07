@@ -39,7 +39,7 @@ var<workgroup> lenLut:array<u32, 1024>;
 var<workgroup> distLut:array<u32, 1024>;
 
 const NUM_SLOTS = WORKGROUP_SIZE / 32u;
-const ROUND_LENGTH_BITS = 64u;
+const ROUND_LENGTH_BITS = 512u;
 
 // 8 slots with 32 speculations each
 // each subslot contains number of bytes (start to end) plus end suboffset (so + 256)
@@ -636,9 +636,6 @@ fn codes_decode(local_invocation_index:u32)
             }
         }
 
-        if(local_invocation_index == 0){
-           
-        }
         storageBarrier();
         workgroupBarrier();
         // 0 ... 32 
@@ -674,6 +671,7 @@ fn codes_decode(local_invocation_index:u32)
             }
         }
 
+        workgroupBarrier();
         storageBarrier();
         d_decode_control[D_DECOMPRESS_BUFS_STATE] = decompress_out_decodes[32] - decompress_out_decodes[0];
         workgroupBarrier();
@@ -706,9 +704,6 @@ fn decompressx(local_invocation_index:u32)
             storageBarrier();
             var uniform_state_control = workgroupUniformLoad(&d_data_state);
             if(uniform_state_control == 0xFFFFFFFF){
-               if(local_invocation_index == 0){
-                //DebugWrite(uniform_state_control);
-                }
                 // end signal
                 return;
             }
@@ -719,10 +714,7 @@ fn decompressx(local_invocation_index:u32)
         }
         storageBarrier();
         workgroupBarrier();
-       
-        if(local_invocation_index == 0){
-            var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];  
-       }
+    
         if(local_invocation_index == 0){
             var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];
              for(var decode_i = 0u; 
@@ -988,14 +980,11 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
 
  
     if( workgroup_id.x == 1){
-        var counter = 0u;
         d_data_state = 0;
          while(true){
-            
             if(local_invocation_index == 0){
-                counter++;
                 var decomp_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
-                if(decomp_state == 0 || counter > 100000){
+                if(decomp_state == 0){
                     d_data_state = 1;
                 }
             }
