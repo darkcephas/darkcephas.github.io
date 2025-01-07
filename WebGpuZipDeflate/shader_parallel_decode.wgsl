@@ -686,7 +686,9 @@ fn codes_decode(local_invocation_index:u32)
     }
 }
     
-
+var<workgroup> decompression_end_index:atomic<u32>;
+var<workgroup> decompress_start_index:u32;
+var<workgroup> num_decodes_remaining:u32;
 fn decompressx(local_invocation_index:u32)
 {
     workgroupBarrier();
@@ -715,7 +717,8 @@ fn decompressx(local_invocation_index:u32)
         storageBarrier();
         workgroupBarrier();
     
-        if(local_invocation_index == 0){
+        // DEBUG SINGLE THREADED
+        if(false && local_invocation_index == 0){
             var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];
              for(var decode_i = 0u; 
                     decode_i < num_decodes; 
@@ -737,12 +740,85 @@ fn decompressx(local_invocation_index:u32)
                 }
              } 
         }
+
+   
+        if(local_invocation_index == 0){
+            decompress_start_index = 0u; 
+            num_decodes_remaining = d_decode_control[D_DECOMPRESS_BUFS_STATE];;
+        }
         workgroupBarrier();
-        storageBarrier();
+  
+        while(true){
+            if(local_invocation_index == 0){
+                // at most let us only do 32 
+                var num_consumed_round = min(num_decodes_remaining, 32);
+                atomicStore(&decompression_end_index, decompress_start_index + num_consumed_round);
+            }
+           
+            var round_start_byte = d_decode_buff[0][1][decompress_start_index];
+            workgroupBarrier();
+
+            if(local_invocation_index % 32 == 0){
+                var decode_i = decompress_start_index + local_invocation_index / 32;
+                var combined = d_decode_buff[0][0][decode_i];
+                var byte_offset = d_decode_buff[0][1][decode_i];
+                var byte_delta = combined & 0xFFFF;
+                var len_bytes = (combined >> 16) & 0x3FFF;
+                if(len_bytes == 0 || (combined & (1<<31)) == 0 ||
+                     decode_i == decompress_start_index){
+                    // This is a decode for a end of block. A end of code block is a decode
+                }
+                else {
+                    var byte_loc_max_copy = (byte_offset - byte_delta) + len_bytes;
+                    if(byte_loc_max_copy > round_start_byte) {
+                        // we cannot do this copy in this round
+                        atomicMin(&decompression_end_index, decode_i);
+                    }
+                }
+            }
+             
+            workgroupBarrier();
+            var local_decompression_end_index = atomicLoad(&decompression_end_index);
+            if(local_invocation_index % 32 == 0){
+                var decode_i = decompress_start_index + local_invocation_index / 32;
+                // some were excluded from running
+                if(decode_i < local_decompression_end_index){
+                    var combined = d_decode_buff[0][0][decode_i];
+                    var byte_offset = d_decode_buff[0][1][decode_i];
+                    //DebugWrite(byte_offset);
+                    var val = combined & 0xFFFF;
+                    var len_bytes = (combined >> 16) & 0x3FFF;
+                    //DebugWrite(byte_offset);
+                    if(len_bytes == 0){
+                        // This is a decode for a end of block. A end of code block is a decode
+                    }
+                    else if( (combined & (1<<31)) == 0) {
+                        WriteByteOut(val, byte_offset);
+                    }
+                    else {
+                        CopyBytes(val, len_bytes, byte_offset);
+                    }
+                }
+            }
+
+            workgroupBarrier();
+            if(local_invocation_index == 0){
+                // completed up to 32 at a time
+                var num_decodes_completed = (local_decompression_end_index - decompress_start_index);
+                num_decodes_remaining = num_decodes_remaining - num_decodes_completed;
+                decompress_start_index += num_decodes_completed;
+            }
+            var uniform_state_control = workgroupUniformLoad(&num_decodes_remaining);
+            if(uniform_state_control == 0){
+                // Done with decompression
+                break;
+            }
+        }
+
         workgroupBarrier();
         d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0;
         workgroupBarrier();
-        storageBarrier();
+
     }
 }
        
