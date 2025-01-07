@@ -60,7 +60,7 @@ var<workgroup> g_outcnt:atomic<u32>;
 // There is probably only a total of 4k decodes per round (32 threads at 128 decodes each)
 // 2 arrays (bytes vs codes)
 // double buffered (2)
-@group(0) @binding(4) var<storage, read_write>  d_decode_buff:array<array<array<u32,1024*256>, 2>, 2>;
+@group(0) @binding(4) var<storage, read_write>  d_decode_buff:array<array<array<atomic<u32>,1024*256>, 2>, 2>;
 // cleanest way to get all this atomics into one storage.. :(      
 @group(0) @binding(5) var<storage, read_write> d_decode_control:array<u32, 1024>;   
 
@@ -464,7 +464,7 @@ fn codes(local_invocation_index:u32)
     var slot_start = atomicLoad(&g_incnt) + ROUND_LENGTH_BITS * (local_invocation_index / 32u);
 
     var total_bytes = ts.outcnt;
-    var total_decodes = 0u;
+   
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
@@ -521,6 +521,7 @@ fn codes(local_invocation_index:u32)
         const bool_as_single_threaded = false;
       
         if(local_invocation_index == 0) {
+            var total_decodes = 0u;
             d_decode_control[D_IN_BITS + 0] = start_incnt;
             d_decode_control[D_OUT_DECODES + 0] = total_decodes;
             d_decode_control[D_OUT_BYTES + 0] = total_bytes;
@@ -596,14 +597,17 @@ var<workgroup> decompress_in_bits:array<u32, 33>;
 var<workgroup> decompress_out_decodes:array<u32, 33>;
 var<workgroup> decompress_out_bytes:array<u32, 33>;
 
+var<workgroup> temp_counter:u32;
 fn codes_decode(local_invocation_index:u32)
 {
     workgroupBarrier();
     if(local_invocation_index == 0){
         decode_done = 0;
+        
     }
 
-    var total_decodes = 0u;
+
+   
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
@@ -613,7 +617,13 @@ fn codes_decode(local_invocation_index:u32)
             if(local_invocation_index == 0){
                 var input_state = d_decode_control[D_STATE];
                 var decomp_state = d_decode_control[D_DECOMPRESS_BUFS_STATE];
-                d_data_state = input_state;
+                if(decomp_state != 0){
+                    // Try again!
+                    d_data_state = 0;
+                }
+                else {
+                    d_data_state = input_state;
+                }
             }
             workgroupBarrier();
             storageBarrier();
@@ -628,6 +638,11 @@ fn codes_decode(local_invocation_index:u32)
             }
         }
 
+        if(local_invocation_index == 0){
+            DebugWrite(66666666);
+            temp_counter++;
+            atomicStore(&d_decode_buff[1][1][1024], temp_counter);
+        }
         storageBarrier();
         workgroupBarrier();
         // 0 ... 32 
@@ -657,8 +672,10 @@ fn codes_decode(local_invocation_index:u32)
                     is_copy = 1<<31;
                 }
                 var combined = ts.decode_to_store | (ts.decode_len << 16) | is_copy;
-                d_decode_buff[0][0][decode_i] = combined;
-                d_decode_buff[0][1][decode_i] = offset_bytes;   
+                atomicStore(&d_decode_buff[0][0][decode_i], combined);
+                atomicStore(&d_decode_buff[0][1][decode_i], offset_bytes);   
+                DebugWrite(1000000000+ decode_i);
+                DebugWrite(offset_bytes);
                 offset_bytes += ts.decode_len;
             }
         }
@@ -681,6 +698,7 @@ fn codes_decode(local_invocation_index:u32)
 fn decompressx(local_invocation_index:u32)
 {
     workgroupBarrier();
+
     // decode literals and length/distance pairs 
     while(true) {
         // multi invocation copy to workgroup storage
@@ -694,25 +712,38 @@ fn decompressx(local_invocation_index:u32)
             storageBarrier();
             var uniform_state_control = workgroupUniformLoad(&d_data_state);
             if(uniform_state_control == 0xFFFFFFFF){
+               if(local_invocation_index == 0){
+                //DebugWrite(uniform_state_control);
+                }
                 // end signal
                 return;
             }
-            else if(uniform_state_control != 0){
+            else if(uniform_state_control != 0){  
                 // new data
                 break;
             }
         }
         storageBarrier();
         workgroupBarrier();
-        if(false && local_invocation_index == 0){
+       
+        if(local_invocation_index == 0){
+            var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];  
+            //DebugWrite(num_decodes);
+           //DebugWrite(atomicLoad(&d_decode_buff[1][1][1024]));
+       }
+        if(local_invocation_index == 0){
             var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];
              for(var decode_i = 0u; 
                     decode_i < num_decodes; 
                         decode_i++){
-                var combined = d_decode_buff[0][0][decode_i];
-                var byte_offset = d_decode_buff[0][1][decode_i];
+                var combined = atomicLoad(&d_decode_buff[0][0][decode_i]);
+                var byte_offset = atomicLoad(&d_decode_buff[0][1][decode_i]);
+                atomicStore(&d_decode_buff[0][0][decode_i], 0);
+                atomicStore(&d_decode_buff[0][1][decode_i], 0);
+                //DebugWrite(byte_offset);
                 var val = combined & 0xFFFF;
                 var len_bytes = (combined >> 16) & 0x3FFF;
+                //DebugWrite(byte_offset);
                 if(len_bytes == 0){
                     // This is a decode for a end of block. A end of code block is a decode
                 }
@@ -722,13 +753,12 @@ fn decompressx(local_invocation_index:u32)
                 else {
                     CopyBytes(val, len_bytes, byte_offset);
                 }
-             }
-             
+             } 
         }
         workgroupBarrier();
         storageBarrier();
         workgroupBarrier();
-        //d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0;
+        d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0;
         workgroupBarrier();
         storageBarrier();
     }

@@ -674,7 +674,8 @@ fn puff( dictlen:u32,         // length of custom dictionary
 fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
  @builtin(local_invocation_index) local_invocation_index: u32,
 @builtin(num_workgroups) num_work:vec3u) {
-         atomicStore(&atomic_idx, 100);
+  
+  atomicStore(&atomic_idx, 20);
    
   if(local_invocation_index != 0)
   {
@@ -684,15 +685,16 @@ fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
               while(atomicLoad(&decompress_next) > atomicLoad(&write_next)){
                 var next_write = atomicLoad(&write_next) & 0xFF;
                 var data_to_write = atomicLoad(&decompress_ring[next_write]);
-                DebugWrite(77777777);
                 if( (data_to_write & (1<<31)) !=0 ){
                     var dist = data_to_write & 0xFFFF;
                     var len = (data_to_write>>16) & 0x7FFF;
                     CopyBytes(dist, len);
+                    DebugWrite(10000000 + len);
                 }
                 else
                 {
                     WriteByteOut(data_to_write);
+                     DebugWrite(20000000 + data_to_write);
                 }
 
                 atomicAdd(&write_next,1);
