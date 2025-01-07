@@ -60,7 +60,7 @@ var<workgroup> g_outcnt:atomic<u32>;
 // There is probably only a total of 4k decodes per round (32 threads at 128 decodes each)
 // 2 arrays (bytes vs codes)
 // double buffered (2)
-@group(0) @binding(4) var<storage, read_write>  d_decode_buff:array<array<array<atomic<u32>,1024*256>, 2>, 2>;
+@group(0) @binding(4) var<storage, read_write>  d_decode_buff:array<array<array<u32,1024*256>, 2>, 2>;
 // cleanest way to get all this atomics into one storage.. :(      
 @group(0) @binding(5) var<storage, read_write> d_decode_control:array<u32, 1024>;   
 
@@ -606,8 +606,6 @@ fn codes_decode(local_invocation_index:u32)
         
     }
 
-
-   
     workgroupBarrier();
     // decode literals and length/distance pairs 
     while(true) {
@@ -639,9 +637,7 @@ fn codes_decode(local_invocation_index:u32)
         }
 
         if(local_invocation_index == 0){
-            DebugWrite(66666666);
-            temp_counter++;
-            atomicStore(&d_decode_buff[1][1][1024], temp_counter);
+           
         }
         storageBarrier();
         workgroupBarrier();
@@ -672,10 +668,8 @@ fn codes_decode(local_invocation_index:u32)
                     is_copy = 1<<31;
                 }
                 var combined = ts.decode_to_store | (ts.decode_len << 16) | is_copy;
-                atomicStore(&d_decode_buff[0][0][decode_i], combined);
-                atomicStore(&d_decode_buff[0][1][decode_i], offset_bytes);   
-                DebugWrite(1000000000+ decode_i);
-                DebugWrite(offset_bytes);
+                d_decode_buff[0][0][decode_i] = combined;
+                d_decode_buff[0][1][decode_i] = offset_bytes;   
                 offset_bytes += ts.decode_len;
             }
         }
@@ -728,18 +722,14 @@ fn decompressx(local_invocation_index:u32)
        
         if(local_invocation_index == 0){
             var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];  
-            //DebugWrite(num_decodes);
-           //DebugWrite(atomicLoad(&d_decode_buff[1][1][1024]));
        }
         if(local_invocation_index == 0){
             var num_decodes = d_decode_control[D_DECOMPRESS_BUFS_STATE];
              for(var decode_i = 0u; 
                     decode_i < num_decodes; 
                         decode_i++){
-                var combined = atomicLoad(&d_decode_buff[0][0][decode_i]);
-                var byte_offset = atomicLoad(&d_decode_buff[0][1][decode_i]);
-                atomicStore(&d_decode_buff[0][0][decode_i], 0);
-                atomicStore(&d_decode_buff[0][1][decode_i], 0);
+                var combined = d_decode_buff[0][0][decode_i];
+                var byte_offset = d_decode_buff[0][1][decode_i];
                 //DebugWrite(byte_offset);
                 var val = combined & 0xFFFF;
                 var len_bytes = (combined >> 16) & 0x3FFF;
