@@ -766,7 +766,6 @@ fn decompressx(local_invocation_index:u32)
                 var len_bytes = (combined >> 16) & 0x3FFF;
                 if(len_bytes == 0 || (combined & (1<<31)) == 0 ||
                      decode_i == decompress_start_index){
-                    // This is a decode for a end of block. A end of code block is a decode
                 }
                 else {
                     var byte_loc_max_copy = (byte_offset - byte_delta) + len_bytes;
@@ -816,9 +815,8 @@ fn decompressx(local_invocation_index:u32)
         }
 
         workgroupBarrier();
-        d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0;
+        d_decode_control[D_DECOMPRESS_BUFS_STATE] = 0; // done this round
         workgroupBarrier();
-
     }
 }
        
