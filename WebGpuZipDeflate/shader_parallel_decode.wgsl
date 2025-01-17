@@ -503,7 +503,8 @@ fn codes(local_invocation_index:u32)
 
         workgroupBarrier();
 
-        while(true){
+        //while(true){
+        while((false)){
             if(local_invocation_index == 0){
                 d_data_state = d_decode_control[D_STATE];
             }
