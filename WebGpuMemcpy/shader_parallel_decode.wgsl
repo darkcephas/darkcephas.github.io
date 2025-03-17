@@ -25,7 +25,6 @@ fn computeMain(  @builtin(workgroup_id) workgroup_id:vec3u,
   let wg_start = (0u + workgroup_id.x ) * wg_each;
   let wg_end =  (1u + workgroup_id.x )  * wg_each;
   for(var i = wg_start; i < wg_end;) {
-    //workgroupBarrier();
     out[i+local_invocation_index]= in[i+local_invocation_index];
     i += WORKGROUP_SIZE;
   }
