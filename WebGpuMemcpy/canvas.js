@@ -67,6 +67,8 @@ window.onload = async function () {
     requiredLimits: {
       maxComputeInvocationsPerWorkgroup:1024,
       maxComputeWorkgroupSizeX:1024,
+      maxStorageBufferBindingSize:536870912,
+      maxBufferSize:536870912
     }
   });
 
@@ -139,7 +141,7 @@ async function RunDecompression() {
     code: shader_code,
   });
 
-  const kNumElementsSrc =  (32*1024) * (1024);
+  const kNumElementsSrc =  (128*1024) * (1024);
   // Create a compute pipeline that updates the game state.
   let renderBufferPipeline = device.createComputePipeline({
     label: "Render pipeline",
