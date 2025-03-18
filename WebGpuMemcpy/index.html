@@ -4,10 +4,7 @@
 
 <head>
   <meta charset="utf-8">
-  <title>WebGPU Zip deflate prototype</title>
-  <script src="external.js"></script>
-  <script src="shader_original.js"></script>
-  <script src="shader_bytes.js"></script>
+  <title>WebGPU Memcpy core test</title>
   <script src="canvas.js"></script>
 </head>
 
@@ -16,18 +13,32 @@
   <script type="module">
   </script>
   <div id='saveload'>
-    <div class='sectionTitle'>WebGPU Zip deflate prototype.
+    <div class='sectionTitle'>WebGPU Memcpy core test
     </div>
     <div class='section'>  
       <p>Select decompression method</p>
     </div>
     <br>  
     
+    <div class='section'>  
+      <p>Number of workgroups</p>
+       <input type="radio" id="num_workgroup_1" name="decompress_selection" value="value_1" checked="checked" >
+       <label for="value_1">1</label>
+       <input type="radio" id="num_workgroup_2" name="decompress_selection" value="value_2" >
+       <label for="value_2">2</label>
+       <input type="radio" id="num_workgroup_4" name="decompress_selection" value="value_4" >
+       <label for="value_4">4</label>
+       <input type="radio" id="num_workgroup_8" name="decompress_selection" value="value_8">
+       <label for="value_8">8</label>
+       <input type="radio" id="num_workgroup_16" name="decompress_selection" value="value_16" >
+       <label for="value_16">16</label>
+    </div>
+    
       <div class='section'>
-        <button id='decompress'>
-          <span>Decompress!</span>
+        <button id='runthetest'>
+          <span>Run!</span>
         </button>
-        <p id="decompressiontext">File not loaded...</p>
+        <p id="runresulttext"> ... waiting for run </p>
       </div>
 
     </div>

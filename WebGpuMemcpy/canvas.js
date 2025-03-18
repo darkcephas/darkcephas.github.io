@@ -9,6 +9,7 @@ var inflated_words = null;
 var querySet;
 var queryBuffer;
 
+var runresulttextTextElement;
 var num_dispatch = 1;
 var shader_code = null;
 var loadingTextElement;
@@ -19,7 +20,7 @@ var radioByteElement;
 var radioShaderLUTElement;
 var radioShaderPipelineElement;
 var radioShaderParallelElement;
-const kDebugArraySize = 1024*256;
+const kDebugArraySize = 1024 * 256;
 var output_file_name = "";
 const capacity = 3;//Max number of timestamps we can store
 
@@ -53,7 +54,6 @@ window.onload = async function () {
     throw new Error("No canvas.");
   }
 
-  // Your WebGPU code will begin here!
   if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
   }
@@ -65,10 +65,8 @@ window.onload = async function () {
   device = await adapter.requestDevice({
     requiredFeatures: ["timestamp-query"],
     requiredLimits: {
-      maxComputeInvocationsPerWorkgroup:1024,
-      maxComputeWorkgroupSizeX:1024,
-      maxStorageBufferBindingSize:536870912,
-      maxBufferSize:536870912
+      maxComputeInvocationsPerWorkgroup: 1024,
+      maxComputeWorkgroupSizeX: 1024,
     }
   });
 
@@ -80,12 +78,10 @@ window.onload = async function () {
     format: canvasFormat,
   });
 
-  const decompress = document.querySelector('#decompress');
-  decompress.addEventListener('click', RunDecompression);
+  runresulttextTextElement = document.querySelector("#runresulttext");
+  const runthetest = document.querySelector('#runthetest');
+  runthetest.addEventListener('click', RunDecompression);
 
-  loadingTextElement = document.querySelector("#loadingtext");
-  decompressionTextElement = document.querySelector("#decompressiontext");
-  savedataTextElement = document.querySelector("#savedatatext");
 
 }
 
@@ -94,6 +90,12 @@ window.onload = async function () {
 async function RunDecompression() {
   // dynamic sided parts of header
 
+  num_dispatch = document.querySelector("#num_workgroup_1").checked ? 1: num_dispatch;
+  num_dispatch = document.querySelector("#num_workgroup_2").checked ? 2: num_dispatch;
+  num_dispatch = document.querySelector("#num_workgroup_4").checked ? 4: num_dispatch;
+  num_dispatch = document.querySelector("#num_workgroup_8").checked ? 8: num_dispatch;
+  num_dispatch = document.querySelector("#num_workgroup_16").checked ? 16: num_dispatch;
+  
   querySet = device.createQuerySet({
     type: "timestamp",
     count: capacity,
@@ -134,14 +136,14 @@ async function RunDecompression() {
   });
 
 
-  shader_code =  await loadShaderFromDisk('shader_parallel_decode.wgsl');
+  shader_code = await loadShaderFromDisk('shader_parallel_decode.wgsl');
 
   let forceIndexShaderModule = device.createShaderModule({
     label: "Zip decode shader",
     code: shader_code,
   });
 
-  const kNumElementsSrc =  (128*1024) * (1024);
+  const kNumElementsSrc = (32 * 1024) * (1024);
   // Create a compute pipeline that updates the game state.
   let renderBufferPipeline = device.createComputePipeline({
     label: "Render pipeline",
@@ -173,7 +175,7 @@ async function RunDecompression() {
 
   const hostInitSrc = new Uint32Array(kNumElementsSrc);
 
-  for(let i = 0; i < kNumElementsSrc;i++){
+  for (let i = 0; i < kNumElementsSrc; i++) {
     hostInitSrc[i] = i;
   }
 
@@ -190,7 +192,7 @@ async function RunDecompression() {
     });
   // fill buffer with the init data.
   const kReadOffset = 0;
-  device.queue.writeBuffer(inputBufferStorage, 0, hostInitSrc, kReadOffset, kMemCpyFullSizeBytes/4);
+  device.queue.writeBuffer(inputBufferStorage, 0, hostInitSrc, kReadOffset, kMemCpyFullSizeBytes / 4);
 
 
   let outputBufferStorage =
@@ -226,7 +228,7 @@ async function RunDecompression() {
         binding: 3,
         resource: { buffer: debuggingBufferStorage }
       },
-    ],
+      ],
     });
 
 
@@ -239,8 +241,12 @@ async function RunDecompression() {
 
   computePass.setPipeline(renderBufferPipeline);
   computePass.setBindGroup(0, commonBindGroup);
+  const kMaxNumIter = 32;
+  for(var i =0 ;i < kMaxNumIter; i++){
   computePass.dispatchWorkgroups(num_dispatch);
+  }
   computePass.end();
+
   const stagingBuffer = device.createBuffer({
     size: kMemCpyFullSizeBytes,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
@@ -264,6 +270,7 @@ async function RunDecompression() {
     0, // Destination offset
     kDebugArraySize
   );
+
 
   encoder.resolveQuerySet(
     querySet,
@@ -294,11 +301,12 @@ async function RunDecompression() {
   const data = copyArrayBuffer.slice();
   stagingBuffer.unmap();
 
-  inflated_words = new Uint32Array(data, 0, kMemCpyFullSizeBytes/4);
- // var crc_test = crc32(inflated_bytes);
+  inflated_words = new Uint32Array(data, 0, kMemCpyFullSizeBytes / 4);
+  // var crc_test = crc32(inflated_bytes);
   //console.log(inflated_bytes);
- // var string = new TextDecoder().decode(inflated_bytes);
- // console.log(string);
+  // var string = new TextDecoder().decode(inflated_bytes);
+  // console.log(string);
+
 
   {
     await stagingBufferDebug.mapAsync(
@@ -312,17 +320,19 @@ async function RunDecompression() {
     console.log(new Uint32Array(data));
   }
 
-  
-  for(let i = 0; i < kNumElementsSrc;i++){
-    if(inflated_words[i] != i){
-        console.log("problem at i=" + i + " value is =" + inflated_words[i] );
-        break;
+
+  for (let i = 0; i < kNumElementsSrc; i++) {
+    if (inflated_words[i] != i) {
+      console.log("problem at i=" + i + " value is =" + inflated_words[i]);
+      break;
     }
   }
-  console.log("Result " + time_in_seconds.toFixed(4) );
+ 
+  console.log("Result " + time_in_seconds.toFixed(4));
   // times 2 because read and write
-  const total_mem_seen_gb = (kMemCpyFullSizeBytes*2.0/1000000000)
-  console.log("Result " + (total_mem_seen_gb/time_in_seconds).toFixed(2) + " GB/s");
-
+  const total_mem_seen_gb = (kMaxNumIter * kMemCpyFullSizeBytes * 2.0 / 1000000000)
+  console.log("Result " + (total_mem_seen_gb / time_in_seconds).toFixed(2) + " GB/s");
+  
+  runresulttextTextElement.innerHTML = "SM count= " + num_dispatch +  "   Result time= " + time_in_seconds.toFixed(4) + "s      Bandwidth=" + (total_mem_seen_gb / time_in_seconds).toFixed(2) + " GB/s";
 }
 
