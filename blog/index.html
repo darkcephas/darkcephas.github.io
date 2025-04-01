@@ -1,0 +1,212 @@
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>
+    The PS3 licked the many cookie
+  </title>
+</head>
+<style>
+  body {
+    background-color: white;
+    line-height: 1.50;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 1em;
+    max-width: 70ch;
+  }
+
+  img {
+    background-color: white;
+    line-height: 1.50;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 1em;
+    max-width: 70ch;
+  }
+</style>
+
+<body>
+
+  <div>
+    <h1>
+      The PS3 licked the many cookie
+    </h1>
+    <p>
+      This post is inspired by
+      <a href="https://raphlinus.github.io/gpu/2025/03/21/good-parallel-computer.html#cell" target="_blank"> I want a
+        good
+        parallel computer</a>
+
+
+    </p>
+
+    <p>
+      It is important to understand why the <a href="https://en.wikipedia.org/wiki/PlayStation_3" target="_blank">
+        PS3</a> failed. The perspective here was juniorish dev working on simulation and
+      rendering in triple-A. I remember less than I knew and knew less than most.
+    </p>
+    <img
+      src="https://www.copetti.org//images/consoles/ps3/original.ef1da38ba374252ffbad5d6c30133170973f1acb33b542ff36f2f525a8d4ef3d.png"
+      alt="OG PS3">
+
+    <p>
+      What I can provide here is the hindsite of someone who actually developed and shipped titles on the PS3.
+    </p>
+    <b>
+      The PS3 failed developers because it was an excessively <a
+        href="https://en.wikipedia.org/wiki/Heterogeneous_computing" target="_blank"> heterogenous</a> computer;
+    </b>
+    and low level heterogeneous compute resists composability.
+
+    <h2>
+      More like multicore than many
+    </h2>
+    <p>
+      <img
+        src="https://www.copetti.org//images/consoles/ps3/diagram.5dba4a44f91926a287dd5fa8cd53a0d726018742bcbb63f5d39c76f364a71bbf.png"
+        alt="PS3 heterogeneous diagram">
+      First off you didnt get the full 8 SPUs as a (game) developer. Out of the 8 SPUs one was disabled due to die yield
+      and the
+      OS got a core and a half. While this changed with updates one only really got 5-6 SPUs to work with. The Xbox in
+      contrast had what amounted to 3 PPUs (2 more). So the Cell really featured at most 3 more (difficult to use) cores
+      than the Xbox360.
+    </p>
+
+    <h2>
+      Computationally weak components
+    </h2>
+
+    <p>
+      The claim from wiki is a SPU has 25 GFlops and the <a href="https://en.wikipedia.org/wiki/RSX_Reality_Synthesize"
+        target="_blank"> PS3 GPU</a> has 192 GFlops. If you absolutely maxed out your SPU
+      usage
+      you would still not even be close to the power of the underpowered PS3 GPU. For contrast the xbox360 gpu had 240
+      GFlops. The GPU of the PS3 has separate Vertex and Pixel shading. In contrast, the XBox360 was shared.
+    </p>
+
+    <p>
+      As a game developer these Flops numbers reflect the experience of developing on these respective platforms. This
+      was
+      particularly noticeable in something like post processing where the demands of the vertex unit are very low (large
+      quads).
+    </p>
+
+    <p>
+      Due to the weakness of the GPU vertex unit people would use the SPUs to do skinning.
+      The pixel shading unit did not have constants. So one would also have to do shader patching on the SPUs before
+      these
+      programs could be sent to the GPU. All of these things require synchronization between the CPU, SPU and GPU and
+      interact with workload balancing. In retrospect I also assume that dynamic branching in the shader was either
+      impossible or prohibitive so this is why everyone did excessive shader permutations. (XBOX360 supported wave
+      operations and I used this feature back in the day)
+    </p>
+
+    <h2>
+      Simple compute models
+    </h2>
+
+    <p>
+      While the Cell could behave more like a supercomputer I saw it mostly used more like generic GPU compute. I never
+      saw production code that did anything but dispatch N jobs from the PPU. I never saw direct inter SPU communication
+      even though I recall such a thing was possible (mailboxes). This is similar to how GPU inter workgroup workloads
+      are
+      more rare and difficult.
+    </p>
+
+    <p>
+      Even the PPU was quite different from an SPU. The SPUs had only vector registers; the PPU had fp, gp, and vector
+      registers. Is this really bad? No but it makes everything more heterogeneous and therefore more complex. Getting
+      maximum performance out of these SPU units means that you were likely doing async DMAs while also doing compute
+      work.
+    </p>
+
+    <h2>
+      Sharp edges
+    </h2>
+
+    <p>
+      The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had 8 Mb/s access from the CPU. So
+      this means in addition to the 256 MB purely for graphics you would also have to dedicate system memory for
+      anything
+      that was written to and from the GPU. The point here is inflexibility and heterogeneous nature.
+    </p>
+
+    <p>
+      The PS3 had cool features but these were never general purpose and could only be exploited by careful attention to
+      detail and sometimes significant architectural changes. I recall using depth bounds for screen space shadowing and
+      one could probably use it for a few other similar gpu techniques (lighting). There was also the alluring double z
+      writes which is a one off for depth maps if you dont actually use a pixel shader. I don't recall all the edges
+      but they were sharp and it meant performance cliffs if one strayed off them.
+    </p>
+
+    <h2>
+      The Challenge of Local memory
+    </h2>
+
+    <p>
+      Of course the challenge that everyone knows about the SPUs is the constraint of memory access to local memory. You
+      got 256Kb but in reality once you factored in stack and program you were probably down to 128Kb. This
+      computational
+      model is far more restrictive than even modern GPU compute where at least there you can access storage buffers
+      directly.
+    </p>
+
+    <p>
+      <b>Most code and algorithms cannot be trivially ported to the SPU. </b>
+      C++ virtual functions and methods will not work out of the box. C++ encourages dynamic allocation of objects but
+      these can point to anywhere in main memory. You would
+      need to map pointer addresses from PPU to SPU to even attempt running a normal c++ program on the SPU. Also null
+      (address 0x0) points to the start of local memory and is not a segfault to load from it.
+    </p>
+
+    <p>
+      Instead of running generic code on the SPU, what developers did was write handcrafted SPU friendly code for heavy
+      but parallelizable parts of their engine. With enough talent and investment you can eke out the full compute
+      power of the PS3. Of course this is maybe easier as a first party developer as you can at least focus on this
+      exotic hardware and
+      craft your engine and game features around the type compute availible. This is why Naughty Dog famously came so
+      close to showing us the full potential of the console.
+    </p>
+
+
+
+    <h2>
+      What it could have been
+    </h2>
+
+    <p>
+      Had the PS3 been what was originally designed it would have been a much more exotic but much less heterogeneous
+      machine.
+    </p>
+
+    <p>
+      The original design was approximately 4 Cell processors with high frequencies. Perhaps massaging this design would
+      have led to very homogenous high performance many core architecture. At more than 1 TFlop of general purpose
+      compute
+      it would have been a beast and not a gnarly beast but a sleek smooth uniform tiger.
+    </p>
+    <p>
+      One has to actually look at the PS3 as the
+      <a href="https://devblogs.microsoft.com/oldnewthing/20091201-00/?p=15843" target="_blank"> licked cookie of </a>
+      many core designs. This half-baked half-harted
+      attempted
+      that became synonymous with the failure of many-core. I used to think that PS3 set back many-core for decades, now
+      I wonder if it simply killed it forever.
+    </p>
+
+    <p>
+      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some technical specifications </a>
+      
+    </p>
+
+  </div>
+
+</body>
+
+</html>
