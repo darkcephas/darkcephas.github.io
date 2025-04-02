@@ -28,7 +28,7 @@
     margin-bottom: 0;
     padding: 1em;
     max-width: 100%;
-    display:block
+    display: block
   }
 </style>
 
@@ -81,18 +81,19 @@
     </h2>
 
     <p>
-      The claim from wiki is a SPU has 25 GFlops and the <a href="https://en.wikipedia.org/wiki/RSX_Reality_Synthesize"
-        target="_blank"> PS3 GPU</a> has 192 GFlops. If you absolutely maxed out your SPU
-      usage
-      you would still not even be close to the power of the underpowered PS3 GPU. For contrast the xbox360 gpu had 240
-      GFlops. The GPU of the PS3 has separate Vertex and Pixel shading. In contrast, the XBox360 was shared.
+      The claim from wiki is a single SPU has 25 GFlops and the <a
+        href="https://en.wikipedia.org/wiki/RSX_Reality_Synthesize" target="_blank"> PS3 GPU</a> has 192 GFlops. If you
+      absolutely maxed out your SPU
+      usage you would still not even be close to the power of the underpowered PS3 GPU. For contrast the xbox360 gpu had
+      240
+      GFlops. The GPU of the PS3 has separate Vertex and Pixel shading. In contrast, the XBox360 was shared
+      computational resources so it could load balance between heavy vertex shading vs heavy pixel shading.
     </p>
 
     <p>
       As a game developer these Flops numbers reflect the experience of developing on these respective platforms. This
-      was
-      particularly noticeable in something like post processing where the demands of the vertex unit are very low (large
-      quads).
+      was particularly noticeable in something like post processing where the demands of the vertex unit are very low
+      (large quads).
     </p>
 
     <p>
@@ -101,25 +102,25 @@
       these
       programs could be sent to the GPU. All of these things require synchronization between the CPU, SPU and GPU and
       interact with workload balancing. In retrospect I also assume that dynamic branching in the shader was either
-      impossible or prohibitive so this is why everyone did excessive shader permutations. (XBOX360 supported wave
-      operations and I used this feature back in the day)
+      impossible or prohibitive so this is why everyone did excessive shader permutations. This means 10s of megabytes
+      of shaders. Again contrast this with the XBOX360 which supported wave
+      operations and I even used this feature back in the day.
     </p>
 
     <h2>
-      Simple compute models
+      Compute Not Super
     </h2>
 
     <p>
       While the Cell could behave more like a supercomputer I saw it mostly used more like generic GPU compute. I never
       saw production code that did anything but dispatch N jobs from the PPU. I never saw direct inter SPU communication
       even though I recall such a thing was possible (mailboxes). This is similar to how GPU inter workgroup workloads
-      are
-      more rare and difficult.
+      are more rare and difficult.
     </p>
 
     <p>
       Even the PPU was quite different from an SPU. The SPUs had only vector registers; the PPU had fp, gp, and vector
-      registers. Is this really bad? No but it makes everything more heterogeneous and therefore more complex. Getting
+      registers. Is this really bad? No, but it makes everything more heterogeneous and therefore more complex. Getting
       maximum performance out of these SPU units means that you were likely doing async DMAs while also doing compute
       work.
     </p>
@@ -131,15 +132,14 @@
     <p>
       The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had 8 Mb/s access from the CPU. So
       this means in addition to the 256 MB purely for graphics you would also have to dedicate system memory for
-      anything
-      that was written to and from the GPU. The point here is inflexibility and heterogeneous nature.
+      anything that was written to and from the GPU. The point here is inflexibility and heterogeneous nature.
     </p>
 
     <p>
       The PS3 had cool features but these were never general purpose and could only be exploited by careful attention to
-      detail and sometimes significant architectural changes. I recall using depth bounds for screen space shadowing and
+      detail and sometimes significant engine changes. I recall using depth bounds for screen space shadowing and
       one could probably use it for a few other similar gpu techniques (lighting). There was also the alluring double z
-      writes which is a one off for depth maps if you dont actually use a pixel shader. I don't recall all the edges
+      writes which is a one-off for depth maps if you dont actually use a pixel shader. I don't recall all the edges
       but they were sharp and it meant performance cliffs if one strayed off them.
     </p>
 
@@ -150,9 +150,8 @@
     <p>
       Of course the challenge that everyone knows about the SPUs is the constraint of memory access to local memory. You
       got 256Kb but in reality once you factored in stack and program you were probably down to 128Kb. This
-      computational
-      model is far more restrictive than even modern GPU compute where at least there you can access storage buffers
-      directly.
+      computational model is far more restrictive than even modern GPU compute where at least there you can access
+      storage buffers directly.
     </p>
 
     <p>
@@ -175,7 +174,7 @@
 
 
     <h2>
-      What it could have been
+      What could have been
     </h2>
 
     <p>
@@ -186,21 +185,19 @@
     <p>
       The original design was approximately 4 Cell processors with high frequencies. Perhaps massaging this design would
       have led to very homogenous high performance many core architecture. At more than 1 TFlop of general purpose
-      compute
-      it would have been a beast and not a gnarly beast but a sleek smooth uniform tiger.
+      compute it would have been a beast and not a gnarly beast but a sleek smooth uniform tiger.
     </p>
     <p>
       One has to actually look at the PS3 as the
       <a href="https://devblogs.microsoft.com/oldnewthing/20091201-00/?p=15843" target="_blank"> licked cookie of </a>
-      many core designs. This half-baked half-harted
-      attempted
-      that became synonymous with the failure of many-core. I used to think that PS3 set back many-core for decades, now
-      I wonder if it simply killed it forever.
+      many core designs. This half-baked half-harted attempted that became synonymous with the failure of many-core. I
+      used to think that PS3 set back many-core for decades, now I wonder if it simply killed it forever.
     </p>
 
     <p>
-      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some technical specifications </a>
-      
+      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some
+        technical specifications </a>
+
     </p>
 
   </div>
