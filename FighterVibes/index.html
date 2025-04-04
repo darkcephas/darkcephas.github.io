@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Missile Math</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+            background: #222;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        #gameContainer {
+            display: flex;
+            gap: 20px;
+        }
+        canvas {
+            border: 1px solid #fff;
+            background: #000;
+        }
+        #ui {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #health, #missileCount, #roundCounter {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        #roundCounter {
+            color: yellow;
+        }
+        #missileGrid {
+            display: grid;
+            grid-template-columns: repeat(5, 40px);
+            gap: 5px;
+        }
+        .missileBtn {
+            padding: 8px;
+            background: #444;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .missileBtn:hover {
+            background: #666;
+        }
+        .missileBtn:disabled {
+            background: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="ui">
+            <div id="health">Health: 100%</div>
+            <div id="missileCount">Missiles: 50</div>
+            <div id="roundCounter">Round: 1</div>
+            <div id="missileGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const missileGrid = document.getElementById('missileGrid');
+        const healthDisplay = document.getElementById('health');
+        const missileCountDisplay = document.getElementById('missileCount');
+        const roundCounterDisplay = document.getElementById('roundCounter');
+
+        let health = 100;
+        let fighters = [];
+        let missiles = [];
+        let explosions = [];
+        let roundActive = true;
+        let totalFighters = 0;
+        let totalMissiles = 50; // Starting stockpile
+        let roundNumber = 1; // Start at round 1
+
+        // Fighter class with downward triangle
+        class Fighter {
+            constructor(x, y, groupSpeed, color) {
+                this.x = x;
+                this.y = y;
+                this.size = 20;
+                this.groupSpeed = groupSpeed;
+                this.fastSpeed = 5;
+                this.targeted = false;
+                this.color = color;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y); // Bottom point (apex pointing down)
+                ctx.lineTo(this.x - this.size / 2, this.y - this.size); // Top left
+                ctx.lineTo(this.x + this.size / 2, this.y - this.size); // Top right
+                ctx.closePath();
+                ctx.fill();
+            }
+            update(fastMode = false) {
+                this.y += fastMode ? this.fastSpeed : this.groupSpeed;
+            }
+        }
+
+        // Missile class with targeting
+        class Missile {
+            constructor(x, y, target) {
+                this.x = x;
+                this.y = y;
+                this.width = 5;
+                this.height = 10;
+                this.speed = 2.5;
+                this.target = target;
+            }
+            draw() {
+                ctx.fillStyle = 'yellow';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+            update() {
+                if (this.target) {
+                    const dx = this.target.x - this.x;
+                    const dy = this.target.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > this.speed) {
+                        this.x += (dx / dist) * this.speed;
+                        this.y += (dy / dist) * this.speed;
+                    } else {
+                        this.x = this.target.x - this.width / 2;
+                        this.y = this.target.y;
+                    }
+                } else {
+                    this.y -= this.speed; // Excess missile flies up
+                }
+            }
+        }
+
+        // Explosion class for hit animation
+        class Explosion {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 5;
+                this.maxRadius = 20;
+                this.speed = 1;
+                this.opacity = 1;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.opacity;
+                ctx.fillStyle = 'orange';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            update() {
+                this.radius += this.speed;
+                this.opacity -= 0.05;
+            }
+            isDone() {
+                return this.radius >= this.maxRadius || this.opacity <= 0;
+            }
+        }
+
+        // Populate missile grid (0-99)
+        for (let i = 0; i < 100; i++) {
+            let btn = document.createElement('button');
+            btn.textContent = i;
+            btn.className = 'missileBtn';
+            btn.onclick = () => fireMissiles(i);
+            missileGrid.appendChild(btn);
+        }
+
+        // Dice-like patterns with spacing
+        const patterns = {
+            2: [[0, 0], [40, 40]],
+            3: [[0, 0], [40, 40], [20, 20]],
+            4: [[0, 0], [0, 40], [40, 0], [40, 40]],
+            5: [[0, 0], [0, 40], [40, 0], [40, 40], [20, 20]],
+            6: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80]],
+            7: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80], [20, 40]],
+            8: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80], [20, 20], [20, 60]] // Added for 8
+        };
+
+        // Colors for each group size (2-8)
+        const groupColors = {
+            2: '#FF6B6B', // Red-ish
+            3: '#4ECDC4', // Turquoise
+            4: '#45B7D1', // Blue
+            5: '#96CEB4', // Green-ish
+            6: '#FFEEAD', // Yellow-ish
+            7: '#D4A5A5', // Pink-ish
+            8: '#FF9F1C'  // Orange-ish (new for 8)
+        };
+
+        // Spawn a round with 3-5 groups, scaling difficulty
+        function spawnRound() {
+            fighters = [];
+            totalFighters = 0;
+            const groupCount = Math.floor(Math.random() * 3) + 3; // 3 to 5 groups
+
+            // Scale max group size based on round number
+            let maxGroupSize;
+            if (roundNumber <= 3) {
+                maxGroupSize = 3; // Rounds 1-3: 2-3 fighters
+            } else if (roundNumber <= 20) {
+                maxGroupSize = Math.min(8, Math.floor(3 + (roundNumber - 3) / 3)); // Gradual increase to 8
+            } else {
+                maxGroupSize = 8; // Round 20+: 2-8 fighters
+            }
+            const minGroupSize = 2;
+
+            const gridWidth = canvas.width / groupCount;
+            for (let g = 0; g < groupCount; g++) {
+                const batchSize = Math.floor(Math.random() * (maxGroupSize - minGroupSize + 1)) + minGroupSize;
+                totalFighters += batchSize;
+                const groupSpeed = 0.2 + Math.random() * 0.3; // 0.2 to 0.5
+                const xBase = g * gridWidth + Math.random() * (gridWidth - 80);
+                const yBase = Math.random() * 150;
+                const pattern = patterns[batchSize];
+                const color = groupColors[batchSize];
+                for (let [dx, dy] of pattern) {
+                    fighters.push(new Fighter(xBase + dx, yBase + dy, groupSpeed, color));
+                }
+            }
+            missileCountDisplay.textContent = `Missiles: ${totalMissiles}`;
+            roundCounterDisplay.textContent = `Round: ${roundNumber}`;
+            roundActive = true;
+            toggleMissileButtons(true);
+        }
+
+        // Toggle missile buttons
+        function toggleMissileButtons(enabled) {
+            document.querySelectorAll('.missileBtn').forEach(btn => {
+                btn.disabled = !enabled;
+            });
+        }
+
+        // Fire missiles (exact number from button)
+        function fireMissiles(count) {
+            if (!roundActive || count > totalMissiles) return;
+            roundActive = false;
+            toggleMissileButtons(false);
+
+            totalMissiles -= count; // Decrease stockpile immediately
+            missileCountDisplay.textContent = `Missiles: ${totalMissiles}`;
+
+            // Sort fighters by Y position (bottom to top)
+            fighters.sort((a, b) => b.y - a.y);
+            const missilesToFire = Math.min(count, totalFighters);
+            for (let i = 0; i < missilesToFire; i++) {
+                fighters[i].targeted = true; // Target bottom-most fighters
+            }
+
+            // Spawn missiles
+            for (let i = 0; i < count; i++) {
+                let x = canvas.width / 2 - 2.5 + (i % 10) * 10 - 45;
+                let target = (i < totalFighters) ? fighters[i] : null;
+                missiles.push(new Missile(x, canvas.height - 10, target));
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update and draw fighters
+            fighters.forEach((fighter, index) => {
+                fighter.update(!roundActive && missiles.length === 0); // Fast mode after missiles
+                fighter.draw();
+
+                // Damage when reaching bottom
+                if (fighter.y >= canvas.height) {
+                    health -= 1;
+                    fighters.splice(index, 1);
+                    healthDisplay.textContent = `Health: ${health}%`;
+                }
+            });
+
+            // Update and draw missiles
+            missiles.forEach((missile, mIndex) => {
+                missile.update();
+                missile.draw();
+
+                if (missile.target) {
+                    const dist = Math.sqrt(
+                        (missile.x - missile.target.x) ** 2 +
+                        (missile.y - missile.target.y) ** 2
+                    );
+                    if (dist < 5) {
+                        explosions.push(new Explosion(missile.target.x, missile.target.y)); // Add explosion
+                        fighters = fighters.filter(f => f !== missile.target); // Remove hit fighter
+                        missiles.splice(mIndex, 1); // Remove missile
+                    }
+                } else if (missile.y < 0) {
+                    missiles.splice(mIndex, 1); // Excess missile off-screen
+                }
+            });
+
+            // Update and draw explosions
+            explosions.forEach((explosion, eIndex) => {
+                explosion.update();
+                explosion.draw();
+                if (explosion.isDone()) {
+                    explosions.splice(eIndex, 1);
+                }
+            });
+
+            // Resolve round after missiles hit and fighters are gone
+            if (!roundActive && missiles.length === 0 && fighters.length === 0) {
+                totalMissiles += totalFighters; // Add N missiles (number of fighters this round)
+                missileCountDisplay.textContent = `Missiles: ${totalMissiles}`;
+                roundNumber += 1; // Increment round counter
+                if (health <= 0) {
+                    alert('Game Over! Base destroyed.');
+                    health = 100;
+                    totalMissiles = 50;
+                    roundNumber = 1;
+                    healthDisplay.textContent = `Health: ${health}%`;
+                    missileCountDisplay.textContent = `Missiles: ${totalMissiles}`;
+                }
+                spawnRound();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game
+        spawnRound();
+        gameLoop();
+    </script>
+</body>
+</html>
