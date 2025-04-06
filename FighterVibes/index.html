@@ -6,7 +6,8 @@
     <style>
         body {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            align-items: center;
             font-family: Arial, sans-serif;
             background: #222;
             color: #fff;
@@ -15,6 +16,8 @@
         }
         #gameContainer {
             display: flex;
+            flex-direction: column;
+            align-items: center;
             gap: 20px;
         }
         canvas {
@@ -34,9 +37,15 @@
             color: yellow;
         }
         #missileGrid {
-            display: grid;
-            grid-template-columns: repeat(5, 40px);
-            gap: 5px;
+            display: flex;
+            flex-direction: column; /* Stack rows vertically */
+            gap: 5px; /* Space between rows */
+            max-width: 800px; /* Match canvas width */
+        }
+        .missileRow {
+            display: flex;
+            flex-direction: row; /* Horizontal row of buttons */
+            gap: 5px; /* Space between buttons */
         }
         .missileBtn {
             padding: 8px;
@@ -45,6 +54,8 @@
             border: none;
             border-radius: 3px;
             cursor: pointer;
+            width: 35px; /* Fixed width to fit 20 per row */
+            text-align: center;
         }
         .missileBtn:hover {
             background: #666;
@@ -79,7 +90,7 @@
         let missiles = [];
         let explosions = [];
         let roundActive = true;
-        let totalFighters = 0;
+        let totalFighters = 20;
         let totalMissiles = 50; // Starting stockpile
         let roundNumber = 1; // Start at round 1
 
@@ -168,13 +179,19 @@
             }
         }
 
-        // Populate missile grid (0-99)
-        for (let i = 0; i < 100; i++) {
-            let btn = document.createElement('button');
-            btn.textContent = i;
-            btn.className = 'missileBtn';
-            btn.onclick = () => fireMissiles(i);
-            missileGrid.appendChild(btn);
+        // Populate missile grid as 5x20 2D array (0-99)
+        for (let row = 0; row < 5; row++) {
+            let missileRow = document.createElement('div');
+            missileRow.className = 'missileRow';
+            for (let col = 0; col < 20; col++) {
+                let i = row * 20 + col; // Calculate button number (0-99)
+                let btn = document.createElement('button');
+                btn.textContent = i;
+                btn.className = 'missileBtn';
+                btn.onclick = () => fireMissiles(i);
+                missileRow.appendChild(btn);
+            }
+            missileGrid.appendChild(missileRow);
         }
 
         // Dice-like patterns with spacing
@@ -185,7 +202,7 @@
             5: [[0, 0], [0, 40], [40, 0], [40, 40], [20, 20]],
             6: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80]],
             7: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80], [20, 40]],
-            8: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80], [20, 20], [20, 60]] // Added for 8
+            8: [[0, 0], [0, 40], [0, 80], [40, 0], [40, 40], [40, 80], [20, 20], [20, 60]]
         };
 
         // Colors for each group size (2-8)
@@ -196,14 +213,17 @@
             5: '#96CEB4', // Green-ish
             6: '#FFEEAD', // Yellow-ish
             7: '#D4A5A5', // Pink-ish
-            8: '#FF9F1C'  // Orange-ish (new for 8)
+            8: '#FF9F1C'  // Orange-ish
         };
 
-        // Spawn a round with 3-5 groups, scaling difficulty
+        // Spawn a round with 3-5 groups, scaling difficulty, with margins
         function spawnRound() {
             fighters = [];
             totalFighters = 0;
             const groupCount = Math.floor(Math.random() * 3) + 3; // 3 to 5 groups
+            const margin = 50; // Horizontal margin from canvas edges
+            const usableWidth = canvas.width - 2 * margin; // Adjusted width for spawning
+            const gridWidth = usableWidth / groupCount;
 
             // Scale max group size based on round number
             let maxGroupSize;
@@ -216,12 +236,11 @@
             }
             const minGroupSize = 2;
 
-            const gridWidth = canvas.width / groupCount;
             for (let g = 0; g < groupCount; g++) {
                 const batchSize = Math.floor(Math.random() * (maxGroupSize - minGroupSize + 1)) + minGroupSize;
                 totalFighters += batchSize;
                 const groupSpeed = 0.2 + Math.random() * 0.3; // 0.2 to 0.5
-                const xBase = g * gridWidth + Math.random() * (gridWidth - 80);
+                const xBase = margin + g * gridWidth + Math.random() * (gridWidth - 80); // Shift by margin
                 const yBase = Math.random() * 150;
                 const pattern = patterns[batchSize];
                 const color = groupColors[batchSize];
