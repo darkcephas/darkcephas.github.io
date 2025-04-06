@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>
-    The PS3 licked the many cookie
+    The PS3 licked the Many cookie
   </title>
 </head>
 <style>
@@ -48,18 +48,16 @@
     <p>
       It is important to understand why the <a href="https://en.wikipedia.org/wiki/PlayStation_3" target="_blank">
         PS3</a> failed. The perspective here was juniorish dev working on simulation and
-      rendering in triple-A. I remember less than I knew and knew less than most.
+      rendering in triple-A. I remember less than I knew and knew less than most!
     </p>
-    <img
-      src="https://www.copetti.org//images/consoles/ps3/original.ef1da38ba374252ffbad5d6c30133170973f1acb33b542ff36f2f525a8d4ef3d.png"
-      alt="OG PS3">
+    <img src="ps3_og_image.png" alt="OG PS3">
 
     <p>
       <i>However</i>, what I can provide here is the hindsight of someone who actually developed and shipped titles
       <sup>1</sup> on
       the PS3.
       I wanted the PS3 to succeeed. To be more specific; I wanted <a
-        href="https://en.wikipedia.org/wiki/Manycore_processor" target="_blank"> many-core </a>to succeed.
+        href="https://en.wikipedia.org/wiki/Manycore_processor" target="_blank">Many-Core</a> to succeed.
     </p>
     <b>
       The PS3 failed developers because it was an excessively <a
@@ -71,13 +69,12 @@
       More like Multicore than Many
     </h2>
     <p>
-      <img
-        src="https://www.copetti.org//images/consoles/ps3/diagram.5dba4a44f91926a287dd5fa8cd53a0d726018742bcbb63f5d39c76f364a71bbf.png"
-        alt="PS3 heterogeneous diagram">
-      First off you didnt get the full 8 SPUs as a (game) developer. Out of the 8 SPUs one was disabled due to die yield
+      <img src="ps3_hetrogenous_image.png" alt="PS3 heterogeneous diagram">
+      First off you didnt get the full 8 SPEs as a (game) developer. Out of the 8 SPEs one was disabled due to die yield
       and the
-      OS got a core and a half. While this changed with updates one only really got 5-6 SPUs to work with. The Xbox in
-      contrast had what amounted to 3 PPUs (2 more). So the Cell really featured at most 3 more (<a href="#local_memory_id">difficult to use</a>) cores
+      OS got a core and a half. While this changed with updates one only really got 5-6 SPEs to work with. The Xbox360 in
+      contrast had what amounted to 3 PPEs (2 more). So the Cell really featured at most 3 more (<a
+        href="#local_memory_id">difficult to use</a>) cores
       than the Xbox360.
     </p>
 
@@ -86,16 +83,19 @@
     </h2>
 
     <p>
-      The claim from wiki is a single SPU has 25 GFlops and the <a
+      The claim from wiki is a single SPE has 25 GFlops and the <a
         href="https://en.wikipedia.org/wiki/RSX_Reality_Synthesizer" target="_blank"> PS3 GPU</a> has 192 GFlops.<b> If
         you
-        absolutely maxed out your SPU
+        absolutely maxed out your SPE
         usage you would still not even be close to the power of the underpowered PS3 GPU. </b> For contrast the Xbox360
       gpu had
       240
       GFlops. The GPU of the PS3 has separate Vertex and Pixel shading. In contrast, the XBox360 was shared
-      computational resources so it could load balance between heavy vertex shading vs heavy pixel shading. (Examples here would be character skinning vs UI rendering)
+      computational resources so it could load balance between heavy vertex shading vs heavy pixel shading. (Examples
+      here would be <a href="https://en.wikipedia.org/wiki/Skeletal_animation" target="_blank">character skinning</a>
+      vs UI rendering)
     </p>
+
 
     <img src="ps3_vs_xbox.png" alt="PS3 heterogeneous diagram">
     <p>
@@ -105,10 +105,10 @@
     </p>
 
     <p>
-      Due to the weakness of the GPU vertex unit developers would use the SPUs to do skinning.
-      The pixel shading unit did not have constants. So one would also have to do shader patching on the SPUs before
+      Due to the weakness of the GPU vertex unit developers would use the SPEs to do skinning.
+      The pixel shading unit did not have constants. So one would also have to do shader patching on the SPEs before
       these
-      programs could be sent to the GPU. All of these things require synchronization between the CPU, SPU and GPU and
+      programs could be sent to the GPU. All of these things require synchronization between the CPU, SPE and GPU and
       interact with workload balancing. In retrospect I also assume that dynamic branching in the shader was either
       impossible or prohibitive so this is why everyone did excessive shader permutations. This means 10s of megabytes
       of shaders. Again contrast this with the XBOX360 which supported wave
@@ -121,17 +121,17 @@
 
     <p>
       While the Cell could behave more like a supercomputer I saw it mostly used more like generic GPU compute. I never
-      saw production code that did anything but dispatch N jobs from the PPU. I never saw direct inter SPU communication
+      saw production code that did anything but dispatch N jobs from the PPE. I never saw direct inter SPE communication
       even though I recall such a thing was possible (mailboxes). This is similar to how GPU inter workgroup workloads
       are more rare and difficult.
     </p>
 
     <p>
-      The hetrogenous nature was everywhere. Even the PPU was quite different from an SPU. The SPUs had only vector
-      registers; the PPU had fp, gp, and vector
+      The hetrogenous nature was everywhere. Even the PPE was quite different from an SPE. The SPEs had only vector
+      registers; the PPE had fp, gp, and vector
       registers. Is this really bad? No, but it makes everything more heterogeneous and therefore more complex. Getting
-      maximum performance out of these SPU units means that you were likely doing async DMAs while also doing compute
-      work. <b>This might be a fun challenge for a top programmer but ends of being more of an obstacle for game
+      maximum performance out of these SPE units means that you were likely doing async DMAs while also doing compute
+      work. <b>These nuances be a fun challenge for a top programmer but ends of being more of an obstacle for game
         development studios. </b>
     </p>
 
@@ -159,22 +159,22 @@
     </h2>
 
     <p>
-      Of course the challenge that everyone knows about the SPUs is the constraint of memory access to local memory. You
+      Of course the challenge that everyone knows about the SPEs is the constraint of memory access to local memory. You
       got 256Kb but in reality once you factored in stack and program you were probably down to 128Kb. This
       computational model is far more restrictive than even modern GPU compute where at least there you can access
       storage buffers directly.
     </p>
 
     <p>
-      <b>Most code and algorithms cannot be trivially ported to the SPU. </b>
+      <b>Most code and algorithms cannot be trivially ported to the SPE. </b>
       C++ virtual functions and methods will not work out of the box. C++ encourages dynamic allocation of objects but
       these can point to anywhere in main memory. You would
-      need to map pointer addresses from PPU to SPU to even attempt running a normal c++ program on the SPU. Also null
+      need to map pointer addresses from PPE to SPE to even attempt running a normal c++ program on the SPE. Also null
       (address 0x0) points to the start of local memory and is not a segfault to load from it.
     </p>
 
     <p>
-      Instead of running generic code on the SPU, what developers did was write handcrafted SPU friendly code for heavy
+      Instead of running generic code on the SPE, what developers did was write handcrafted SPE friendly code for heavy
       but parallelizable parts of their engine. With enough talent and investment you can eke out the full compute
       power of the PS3. Of course this is maybe easier as a first party developer as you can at least focus on this
       exotic hardware and
@@ -205,17 +205,23 @@
 
     <p>
       The original design was approximately 4 Cell processors with high frequencies. Perhaps massaging this design would
-      have led to very homogenous high performance many core architecture. At more than 1 TFlop of general purpose
+      have led to very homogenous high performance Many-Core architecture. At more than 1 TFlop of general purpose
       compute it would have been a beast and not a gnarly beast but a sleek smooth uniform tiger.
     </p>
     <p>
       One has to actually look at the PS3 as the
       <a href="https://devblogs.microsoft.com/oldnewthing/20091201-00/?p=15843" target="_blank">licked cookie</a>
       <sup>4</sup> of
-      many core designs. This half-baked half-harted attempted that became synonymous with the failure of many-core. <b> I
-      used to think that PS3 set back many-core for decades, now I wonder if it simply killed it forever. </b>
+      Many-Core designs. This half-baked half-harted attempted that became synonymous with the failure of Many-Core. <b>
+        I
+        used to think that PS3 set back Many-Core for decades, now I wonder if it simply killed it forever. </b>
     </p>
 
+
+
+    <h2>
+      Refs
+    </h2>
 
     <p>
       <sup> 1 </sup> <a href="https://www.mobygames.com/person/516875/peter-mcneeley/credits/" target="_blank"> Some of
@@ -223,11 +229,13 @@
     </p>
 
     <p>
-      <sup> 2 </sup> This low level composability problem is often seen in assembly. 
+      <sup> 2 </sup> I will not provie a proof or reference but the mathematical issue is that the space is not covered
+      uniformly. This low level composability problem is often seen instruction selection when writing assembly.
     </p>
 
     <p>
-      <sup> 3 </sup>The XBox360 gpu had wave operations like ifany/ifall that are similar to modern control flow subgroup operations.
+      <sup> 3 </sup>The XBox360 gpu had wave operations like ifany/ifall that are similar to modern control flow
+      subgroup operations.
     </p>
 
     <p>
@@ -236,8 +244,8 @@
 
 
     <p>
-      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some
-        technical specifications </a>
+      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> classic.copetti.org </a>
+      Source for images and some technical specifications.
     </p>
   </div>
 
