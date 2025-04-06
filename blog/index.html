@@ -65,10 +65,10 @@
       The PS3 failed developers because it was an excessively <a
         href="https://en.wikipedia.org/wiki/Heterogeneous_computing" target="_blank"> heterogenous</a> computer;
     </b>
-    and low level heterogeneous compute resists composability.
+    and low level heterogeneous compute resists composability.<sup>2</sup>
 
     <h2>
-      More like multicore than many
+      More like Multicore than Many
     </h2>
     <p>
       <img
@@ -77,12 +77,12 @@
       First off you didnt get the full 8 SPUs as a (game) developer. Out of the 8 SPUs one was disabled due to die yield
       and the
       OS got a core and a half. While this changed with updates one only really got 5-6 SPUs to work with. The Xbox in
-      contrast had what amounted to 3 PPUs (2 more). So the Cell really featured at most 3 more (difficult to use) cores
+      contrast had what amounted to 3 PPUs (2 more). So the Cell really featured at most 3 more (<a href="#local_memory_id">difficult to use</a>) cores
       than the Xbox360.
     </p>
 
     <h2>
-      Computationally weak components
+      Computationally Weak Components
     </h2>
 
     <p>
@@ -94,8 +94,7 @@
       gpu had
       240
       GFlops. The GPU of the PS3 has separate Vertex and Pixel shading. In contrast, the XBox360 was shared
-      computational resources so it could load balance between heavy vertex shading vs heavy pixel shading. (Contrasting
-      examples here are character skinning vs UI rendering)
+      computational resources so it could load balance between heavy vertex shading vs heavy pixel shading. (Examples here would be character skinning vs UI rendering)
     </p>
 
     <img src="ps3_vs_xbox.png" alt="PS3 heterogeneous diagram">
@@ -106,14 +105,14 @@
     </p>
 
     <p>
-      Due to the weakness of the GPU vertex unit people would use the SPUs to do skinning.
+      Due to the weakness of the GPU vertex unit developers would use the SPUs to do skinning.
       The pixel shading unit did not have constants. So one would also have to do shader patching on the SPUs before
       these
       programs could be sent to the GPU. All of these things require synchronization between the CPU, SPU and GPU and
       interact with workload balancing. In retrospect I also assume that dynamic branching in the shader was either
       impossible or prohibitive so this is why everyone did excessive shader permutations. This means 10s of megabytes
       of shaders. Again contrast this with the XBOX360 which supported wave
-      operations and I even used this feature back in the day.
+      operations <sup>3</sup> and I even used this feature back in the day.
     </p>
 
     <h2>
@@ -137,7 +136,7 @@
     </p>
 
     <h2>
-      Sharp edges
+      Sharp Edges
     </h2>
 
     <p>
@@ -155,7 +154,7 @@
       edge of them all.
     </p>
 
-    <h2>
+    <h2 id="local_memory_id">
       The Challenge of Local memory
     </h2>
 
@@ -212,20 +211,34 @@
     <p>
       One has to actually look at the PS3 as the
       <a href="https://devblogs.microsoft.com/oldnewthing/20091201-00/?p=15843" target="_blank">licked cookie</a>
-      <sup>1.</sup> of
-      many core designs. This half-baked half-harted attempted that became synonymous with the failure of many-core. I
-      used to think that PS3 set back many-core for decades, now I wonder if it simply killed it forever.
+      <sup>4</sup> of
+      many core designs. This half-baked half-harted attempted that became synonymous with the failure of many-core. <b> I
+      used to think that PS3 set back many-core for decades, now I wonder if it simply killed it forever. </b>
     </p>
 
-    <p>
-      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some
-        technical specifications </a>
-    </p>
+
     <p>
       <sup> 1 </sup> <a href="https://www.mobygames.com/person/516875/peter-mcneeley/credits/" target="_blank"> Some of
         the titles I have worked on. </a>
     </p>
 
+    <p>
+      <sup> 2 </sup> This low level composability problem is often seen in assembly. 
+    </p>
+
+    <p>
+      <sup> 3 </sup>The XBox360 gpu had wave operations like ifany/ifall that are similar to modern control flow subgroup operations.
+    </p>
+
+    <p>
+      <sup> 4 </sup>I am not sure my usage fits Raymond's narrow specifications.
+    </p>
+
+
+    <p>
+      <a href="https://classic.copetti.org/writings/consoles/playstation-3/" target="_blank"> Source for images and some
+        technical specifications </a>
+    </p>
   </div>
 
 </body>
