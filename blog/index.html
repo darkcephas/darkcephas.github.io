@@ -86,9 +86,9 @@
       More like Multicore than Many
     </h2>
     <p>
-      The primary characterist of <a href="https://en.wikipedia.org/wiki/Manycore_processor"
+      The primary characteristic of <a href="https://en.wikipedia.org/wiki/Manycore_processor"
         target="_blank">Many-Core</a> is, by virtue of the name, the high core count. Many-core is simply a tradeoff
-      that enables wide parallism through more explict control.
+      that enables wide parallism through more explict (programmer) control.
       <br>
       <br>
     <table>
@@ -104,7 +104,7 @@
       </tr>
       <tr>
         <td>Low latency, OOO, SuperScalar</td>
-        <td>Deep instruction pipe, High latency</td>
+        <td>vector instruction pipe, High latency</td>
         <td>RISC-like, scalar</td>
       </tr>
       <tr>
@@ -171,7 +171,7 @@
       impossible or prohibitive so this is why everyone did excessive shader permutations. This means 10s of megabytes
       of shaders. Again contrast this with the XBOX360 which supported wave
       operations <sup>3</sup> and I even used this feature back in the day. <b> Because each component of the PS3 is
-        weak on its own they all must be used in concert to compete with (the) less hetrogenous platforms. </b>
+        weak on its own they all must be employed in concert to compete with (the) less hetrogenous platforms. </b>
     </p>
 
     <h2>
@@ -199,7 +199,7 @@
     </h2>
 
     <p>
-      The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had 8 Mb/s access from the CPU. So
+      The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had REDACTED Mb/s access from the CPU. So
       this means in addition to the 256 MB purely for graphics you would also have to dedicate system memory for
       anything that was written to and from the GPU. The point here is inflexibility and heterogeneous nature.
     </p>
@@ -208,7 +208,7 @@
       The PS3 had cool features but these were never general purpose and could only be exploited by careful attention to
       detail and sometimes significant engine changes. I recall using depth bounds for screen space shadowing and
       one could probably use it for a few other similar gpu techniques (lighting). There was also the alluring double z
-      writes which is a one-off for depth maps if you dont actually use a pixel shader. I don't recall all the edges
+      writes which is a one-off for depth maps if you dont actually use a pixel shader. I don't recall all the edges,
       but they were sharp and it meant performance cliffs if one strayed off them. The next section covers the sharpest
       edge of them all.
     </p>
