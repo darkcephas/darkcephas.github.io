@@ -122,7 +122,8 @@
     <br>
 
 
-    At first glance, the SPEs of the PS3 fit the bill. They <i>seem</i> to have all the characteristics of Many-Core. The
+    At first glance, the SPEs of the PS3 fit the bill. They <i>seem</i> to have all the characteristics of Many-Core.
+    The
     problem is that most important characteristic, <i>that there is many cores</i>, is significantly lacking.
     <br>
     <br>
@@ -188,7 +189,8 @@
     <p>
       The hetrogenous nature was everywhere. Even the PPE was quite different from an SPE. The SPEs had only vector
       registers; the PPE had fp, gp, and vector
-      registers. Is this really bad? No, but it makes everything more heterogeneous and therefore more complex. Getting
+      registers. Is this really bad? No<sup>4</sup>, but it makes everything more heterogeneous and therefore more
+      complex. Getting
       maximum performance out of these SPE units means that you were likely doing async DMAs while also doing compute
       work. <b>These nuances be a fun challenge for a top programmer but ends of being more of an obstacle to
         development for game studios. </b>
@@ -199,7 +201,8 @@
     </h2>
 
     <p>
-      The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had REDACTED Mb/s access from the CPU. So
+      The PS3 had 512 Mb total memory but 256 MB was dedicated to graphics and only had REDACTED Mb/s access from the
+      CPU. So
       this means in addition to the 256 MB purely for graphics you would also have to dedicate system memory for
       anything that was written to and from the GPU. The point here is inflexibility and heterogeneous nature.
     </p>
@@ -233,15 +236,15 @@
     </p>
 
     <p>
-      Instead of running generic code on the SPE, what developers did was write handcrafted SPE friendly code for heavy
+      So, instead of running generic code on the SPE, what developers did was write handcrafted SPE friendly code for
+      heavy
       but parallelizable parts of their engine. <b>With enough talent and investment you can eke out the full compute
-        power of the PS3.<sup>4</sup> </b> Of course this is maybe easier as a first party developer as you can at least
-      focus on this
-      exotic hardware and
-      craft your engine and game features around the type compute availible. This is why <a
-        href="https://en.wikipedia.org/wiki/Uncharted_3:_Drake%27s_Deception" target="_blank">Naughty Dog</a> famously
-      came so
-      close to showing us the full potential of the console.
+        power of the PS3.<sup>5</sup> </b> Of course this is maybe easier as a <a
+        href="https://en.wikipedia.org/wiki/Video_game_developer#Types" target="_blank">first party developer</a> as you
+      can at least
+      focus on this exotic hardware and craft your engine and game features around the type compute available. This is
+      why <a href="https://en.wikipedia.org/wiki/Uncharted_3:_Drake%27s_Deception" target="_blank">Naughty Dog</a>
+      famously came so close to showing us the full potential of the console.
 
     <figure>
       <figcaption>
@@ -271,7 +274,7 @@
     <p>
       One has to actually look at the PS3 as the
       <a href="https://devblogs.microsoft.com/oldnewthing/20091201-00/?p=15843" target="_blank">licked cookie</a>
-      <sup>5</sup> of
+      <sup>6</sup> of
       Many-Core designs. This half-baked half-harted attempted that became synonymous with the failure of Many-Core. <b>
         I
         used to think that PS3 set back Many-Core for decades, now I wonder if it simply killed it forever. </b>
@@ -298,14 +301,18 @@
       subgroup operations.
     </p>
 
+    <p>
+      <sup> 4 </sup> The fact that it was only vectors on the SPEs was present to the programmer due to loads/stores
+      having to also be vector aligned
+    </p>
 
     <p>
-      <sup> 4 </sup> <a href=" https://www.neogaf.com/threads/ps3-games-list-spe-usages.184843/" target="_blank"> PS3
+      <sup> 5 </sup> <a href=" https://www.neogaf.com/threads/ps3-games-list-spe-usages.184843/" target="_blank"> PS3
         SPE usage</a> : it is clear that some games had higher utilization than others.
     </p>
 
     <p>
-      <sup> 5 </sup>I am not sure my usage fits Raymond's narrow specifications.
+      <sup> 6 </sup>I am not sure my usage fits Raymond's narrow specifications.
     </p>
 
 
