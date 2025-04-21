@@ -95,6 +95,9 @@ async function RunDecompression() {
   num_dispatch = document.querySelector("#num_workgroup_4").checked ? 4: num_dispatch;
   num_dispatch = document.querySelector("#num_workgroup_8").checked ? 8: num_dispatch;
   num_dispatch = document.querySelector("#num_workgroup_16").checked ? 16: num_dispatch;
+  num_dispatch = document.querySelector("#dual_dispatch").checked ? 2: num_dispatch;
+
+  var is_dual_dispatch = document.querySelector("#dual_dispatch").checked;
   
   querySet = device.createQuerySet({
     type: "timestamp",
@@ -153,7 +156,8 @@ async function RunDecompression() {
       entryPoint: "computeMain",
       constants: {
         DISPATCH_COUNT: num_dispatch,
-        NUM_ELEMENTS: kNumElementsSrc
+        NUM_ELEMENTS: kNumElementsSrc,
+        DUAL_DISPATCH: is_dual_dispatch,
       }
     },
   });
