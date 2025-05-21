@@ -90,10 +90,10 @@ const mySearchParams = new URLSearchParams(paramsString);
 
   for (const [key, value] of mySearchParams) {
     if(key == 'codea'){
-      document.getElementById('shadertexta').value = decodeURI(value);
+      document.getElementById('shadertexta').value = decodeURIComponent(value);
     }
     if(key=='codeb'){
-      document.getElementById('shadertextb').value = decodeURI(value);
+      document.getElementById('shadertextb').value = decodeURIComponent(value);
     }
   }
 
@@ -125,8 +125,8 @@ const mySearchParams = new URLSearchParams(paramsString);
 
 async function CurrentURLToCopy() {
     //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
-    var full_url=  window.location.origin +  '?codea=' + encodeURI(  document.getElementById('shadertexta').value ) +
-    '&codeb=' + encodeURI(  document.getElementById('shadertextb').value );
+    var full_url=  window.location.origin +  '?codea=' + encodeURIComponent(  document.getElementById('shadertexta').value ) +
+    '&codeb=' + encodeURIComponent(  document.getElementById('shadertextb').value );
     navigator.clipboard.writeText(full_url).then(function() {
       console.log('Async: Copying to clipboard was successful!');
     }, function(err) {
