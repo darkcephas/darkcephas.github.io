@@ -1,0 +1,49 @@
+<!doctype html>
+
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>WebGPU benchmarking Jig (A vs B)</title>
+  <script src="canvas.js"></script>
+</head>
+
+<body style="background-color:white">
+  <canvas width="1" height="1"></canvas>
+  <script type="module">
+  </script>
+  <div id='saveload'>
+    <div class='sectionTitle'>WebGPU benchmarking jig (A vs B)
+      <p>Compare A wgsl compute program to B.</p>
+    </div>
+    <div class='section'>
+      <input type="checkbox" id="enablesubgroup" name="enablesubgroup" value="enablesubgroup">
+    </div>
+    <label for="dispatchcubed">Dispatch size:</label>
+    <input name="dispatchcubed" type="number" value="64" min="1" max="1024" step="1" id="dispatchcubedid" />
+    <div class='section'>
+      <div class='section'>
+        <button id='runtestbutton'>
+          <span>Run Test</span>
+        </button>
+        <p id="testresulttext">Waiting for run...</p>
+      </div>
+    </div>
+    Shader Code A:
+    <div class='section'>
+      <textarea name="shadertexta"  id="shadertexta"  cols="81" rows="20" >
+        code A.
+      </textarea>
+    </div>
+    <br>
+    Shader Code A:
+    <div class='section'>
+      <textarea name="shadertextb"  id="shadertextb"  cols="81" rows="20" >
+        code b.
+      </textarea>
+    </div>
+  </div>
+
+</body>
+
+</html>

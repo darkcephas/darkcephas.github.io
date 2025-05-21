@@ -1,0 +1,257 @@
+"use strict";
+
+var device;
+var context;
+var querySet;
+var queryBuffer;
+
+var testresulttext;
+const kDebugArraySize = 1024 * 256;
+const kInputBufferCount = 1024 * 256;
+const timestampCapacity = 16;//Max number of timestamps we can store
+
+// https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
+// For timestamps
+async function readBuffer(device, buffer) {
+  const size = buffer.size;
+  const gpuReadBuffer = device.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const copyEncoder = device.createCommandEncoder();
+  copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
+  const copyCommands = copyEncoder.finish();
+  device.queue.submit([copyCommands]);
+  await gpuReadBuffer.mapAsync(GPUMapMode.READ);
+  return gpuReadBuffer.getMappedRange();
+}
+
+
+function setRunPass(passed_string) {
+  testresulttext.innerHTML = passed_string;
+  testresulttext.style.color = "green";
+}
+
+function setRunError(error_string) {
+  testresulttext.innerHTML = error_string;
+  testresulttext.style.color = "red";
+}
+
+window.onload = async function () {
+  const canvas = document.querySelector("canvas");
+  if (!canvas) {
+    throw new Error("No canvas.");
+  }
+
+  // Your WebGPU code will begin here!
+  if (!navigator.gpu) {
+    throw new Error("WebGPU not supported on this browser.");
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("No appropriate GPUAdapter found.");
+  }
+
+  var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
+  // We dont need timestamps for this code to work but this is a prototype.
+  // , enablesubgroupflag ? "subgroups" : ""
+  device = await adapter.requestDevice({
+    requiredFeatures: ["timestamp-query"],
+    requiredLimits: {
+      maxComputeInvocationsPerWorkgroup: 1024,
+      maxComputeWorkgroupSizeX: 1024,
+      maxComputeWorkgroupStorageSize: 32768
+    }
+  });
+
+  context = canvas.getContext("webgpu");
+  var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({
+    device: device,
+    format: canvasFormat,
+  });
+
+
+  const runthebenchmark = document.querySelector('#runtestbutton');
+  runthebenchmark.addEventListener('click', RunBenchmark);
+  testresulttext = document.querySelector("#testresulttext");
+
+  var default_code =
+`  
+@group(0)@binding(0) var <storage,read >  _in :array< f32 >;
+@group(0)@binding(1) var <storage,read_write > _out: array < f32 >;
+
+@compute @workgroup_size(256)
+fn computeMain(@builtin(local_invocation_index) g: u32) {
+  _out[g] = _in[g];
+}
+`;
+
+  document.getElementById('shadertexta').value = default_code
+  document.getElementById('shadertextb').value = default_code;
+}
+
+
+
+async function RunBenchmark() {
+  querySet = device.createQuerySet({
+    type: "timestamp",
+    count: timestampCapacity,
+  });
+  queryBuffer = device.createBuffer({
+    size: 8 * timestampCapacity,
+    usage: GPUBufferUsage.QUERY_RESOLVE
+      | GPUBufferUsage.STORAGE
+      | GPUBufferUsage.COPY_SRC
+      | GPUBufferUsage.COPY_DST,
+  });
+
+  // Create the bind group layout and pipeline layout.
+  let bindGroupLayout = device.createBindGroupLayout({
+    label: "Cell Bind Group Layout",
+    entries: [{
+      binding: 0,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "read-only-storage" } // input
+    }, {
+      binding: 1,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" } // output
+    }]
+  });
+
+  const pipelineLayout = device.createPipelineLayout({
+    label: "Main Pipeline Layout",
+    bindGroupLayouts: [bindGroupLayout],
+  });
+
+
+  var shaderCodeA = document.getElementById('shadertexta').value;
+  var shaderCodeB = document.getElementById('shadertextb').value;
+
+  let shaderModuleA = device.createShaderModule({
+    label: "Benchmark compute shader",
+    code: shaderCodeA,
+  });
+
+  // Create a compute pipeline that updates the game state.
+  let computePipelineA = device.createComputePipeline({
+    label: "Render pipeline",
+    layout: pipelineLayout,
+    compute: {
+      module: shaderModuleA,
+      entryPoint: "computeMain",
+    }
+  });
+
+  let shaderModuleB = device.createShaderModule({
+    label: "Benchmark compute shader",
+    code: shaderCodeB,
+  });
+
+  // Create a compute pipeline that updates the game state.
+  let computePipelineB = device.createComputePipeline({
+    label: "Render pipeline",
+    layout: pipelineLayout,
+    compute: {
+      module: shaderModuleB,
+      entryPoint: "computeMain",
+    }
+  });
+
+  // fill buffer with the init data.
+  const floatInitArray = new Float32Array(kInputBufferCount);
+  let inputBufferStorage =
+    device.createBuffer({
+      label: "Init input array",
+      size: floatInitArray.byteLength, // this isnt quite right...
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+  for (let i = 0; i < floatInitArray.length; i += 6) {
+    floatInitArray[i] = Math.random();
+  }
+  device.queue.writeBuffer(inputBufferStorage, 0, floatInitArray, 0, floatInitArray.length);
+
+  let debuggingBufferStorage =
+    device.createBuffer({
+      label: "debugging storage result",
+      size: kDebugArraySize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+  let commonBindGroup =
+    device.createBindGroup({
+      label: "Compute renderer bind group A",
+      layout: bindGroupLayout, // Updated Line
+      entries: [{
+        binding: 0,
+        resource: { buffer: inputBufferStorage }
+      }, {
+        binding: 1,
+        resource: { buffer: debuggingBufferStorage }
+      }
+      ],
+    });
+
+
+  var timingA = 0;
+  var timingB = 0;
+  for (var i = 0; i < 256; i++) {
+    const encoder = device.createCommandEncoder();
+    const computePass = encoder.beginComputePass({
+      label: "Timing request",
+      timestampWrites: { querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+    });
+
+    computePass.setPipeline(i == 0 ? computePipelineA : computePipelineB);
+    computePass.setBindGroup(0, commonBindGroup);
+    var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
+    computePass.dispatchWorkgroups(dispatch_cube_size, dispatch_cube_size, dispatch_cube_size);
+    computePass.end();
+
+    const stagingBufferDebug = device.createBuffer({
+      size: kDebugArraySize,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    encoder.copyBufferToBuffer(
+      debuggingBufferStorage,
+      0, // Source offset
+      stagingBufferDebug,
+      0, // Destination offset
+      kDebugArraySize
+    );
+
+    encoder.resolveQuerySet(
+      querySet,
+      0,// index of first query to resolve 
+      timestampCapacity,//number of queries to resolve
+      queryBuffer,
+      0);// destination offset
+
+    const commandBuffer = encoder.finish();
+
+    device.queue.submit([commandBuffer]);
+    const arrayBuffer = await readBuffer(device, queryBuffer);
+    const timingsNanoseconds = new BigInt64Array(arrayBuffer);
+    const time_in_seconds = Number(timingsNanoseconds[1] - timingsNanoseconds[0]) / 1000000000.0;
+
+
+    await stagingBufferDebug.mapAsync(
+      GPUMapMode.READ,
+      0, // Offset
+      kDebugArraySize // Length
+    );
+    const copyArrayBuffer = stagingBufferDebug.getMappedRange();
+    const data = copyArrayBuffer.slice();
+    stagingBufferDebug.unmap();
+    //console.log(new Float32Array(data));
+
+    if (i == 0) {
+      timingA = time_in_seconds;
+    } else {
+      timingB = time_in_seconds;
+    }
+  }
+
+
+  setRunPass("Runs A time " + timingA.toFixed(4) + " time b " + timingB.toFixed(4));
+}
+
