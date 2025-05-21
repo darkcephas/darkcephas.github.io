@@ -125,7 +125,7 @@ const mySearchParams = new URLSearchParams(paramsString);
 
 async function CurrentURLToCopy() {
     //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
-    var full_url=  window.location.origin +  '?codea=' + encodeURIComponent(  document.getElementById('shadertexta').value ) +
+    var full_url=  window.location.pathname +  '?codea=' + encodeURIComponent(  document.getElementById('shadertexta').value ) +
     '&codeb=' + encodeURIComponent(  document.getElementById('shadertextb').value );
     navigator.clipboard.writeText(full_url).then(function() {
       console.log('Async: Copying to clipboard was successful!');
