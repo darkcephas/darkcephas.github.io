@@ -13,8 +13,7 @@
   <script type="module">
   </script>
   <div id='saveload'>
-    <div class='sectionTitle'>WebGPU benchmarking jig (A vs B)
-      <p>Compare A wgsl compute program to B.</p>
+    <div class='sectionTitle'>WebGPU benchmarking Jig (A vs B)
     </div>
     <div class='section'>
       <input type="checkbox" id="enablesubgroup" name="enablesubgroup" value="enablesubgroup">
@@ -29,6 +28,13 @@
         <p id="testresulttext">Waiting for run...</p>
       </div>
     </div>
+    <div class='section'>
+      <div class='section'>
+        <button id='getcurrenturl'>
+          <span>GetCurrentURL</span>
+        </button>
+      </div>
+    </div>
     Shader Code A:
     <div class='section'>
       <textarea name="shadertexta"  id="shadertexta"  cols="81" rows="20" >
@@ -36,7 +42,7 @@
       </textarea>
     </div>
     <br>
-    Shader Code A:
+    Shader Code B:
     <div class='section'>
       <textarea name="shadertextb"  id="shadertextb"  cols="81" rows="20" >
         code b.
