@@ -71,7 +71,7 @@ window.onload = async function () {
   testresulttext = document.querySelector("#testresulttext");
 
   var default_code =
-`  
+    `  
 @group(0)@binding(0) var <storage,read >  _in :array< f32 >;
 @group(0)@binding(1) var <storage,read_write > _out: array < f32 >;
 
@@ -82,40 +82,40 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
 }
 `;
 
-const paramsString = window.location.search;
-const mySearchParams = new URLSearchParams(paramsString);
+  const paramsString = window.location.search;
+  const mySearchParams = new URLSearchParams(paramsString);
 
   document.getElementById('shadertexta').value = default_code
   document.getElementById('shadertextb').value = default_code;
 
   for (const [key, value] of mySearchParams) {
-    if(key == 'codea'){
+    if (key == 'codea') {
       document.getElementById('shadertexta').value = decodeURIComponent(value);
     }
-    if(key=='codeb'){
+    if (key == 'codeb') {
       document.getElementById('shadertextb').value = decodeURIComponent(value);
     }
   }
 
   //https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
-  var tabs_allow_func = function(e) {
+  var tabs_allow_func = function (e) {
     if (e.key == 'Tab') {
       e.preventDefault();
       var start = this.selectionStart;
       var end = this.selectionEnd;
-  
+
       // set textarea value to: text before caret + tab + text after caret
       this.value = this.value.substring(0, start) +
         "\t" + this.value.substring(end);
-  
+
       // put caret at right position again
       this.selectionStart =
         this.selectionEnd = start + 1;
     }
   };
 
-  document.getElementById('shadertexta').addEventListener('keydown',tabs_allow_func );
-  document.getElementById('shadertextb').addEventListener('keydown',tabs_allow_func );
+  document.getElementById('shadertexta').addEventListener('keydown', tabs_allow_func);
+  document.getElementById('shadertextb').addEventListener('keydown', tabs_allow_func);
 
   const getcurrenturl = document.querySelector('#getcurrenturl');
   getcurrenturl.addEventListener('click', CurrentURLToCopy);
@@ -124,14 +124,14 @@ const mySearchParams = new URLSearchParams(paramsString);
 
 
 async function CurrentURLToCopy() {
-    //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
-    var full_url= window.location.origin +  window.location.pathname +  '?codea=' + encodeURIComponent(  document.getElementById('shadertexta').value ) +
-    '&codeb=' + encodeURIComponent(  document.getElementById('shadertextb').value );
-    navigator.clipboard.writeText(full_url).then(function() {
-      console.log('Async: Copying to clipboard was successful!');
-    }, function(err) {
-      console.error('Async: Could not copy text: ', err);
-    });
+  //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
+  var full_url = window.location.origin + window.location.pathname + '?codea=' + encodeURIComponent(document.getElementById('shadertexta').value) +
+    '&codeb=' + encodeURIComponent(document.getElementById('shadertextb').value);
+  navigator.clipboard.writeText(full_url).then(function () {
+    console.log('Async: Copying to clipboard was successful!');
+  }, function (err) {
+    console.error('Async: Could not copy text: ', err);
+  });
 }
 
 
@@ -237,16 +237,16 @@ async function RunBenchmark() {
     });
 
 
-  var timingA = 0;
-  var timingB = 0;
-  for (var i = 0; i < 2; i++) {
+  var timingA = [];
+  var timingB = [];
+  for (var i = 0; i < 256; i++) {
     const encoder = device.createCommandEncoder();
     const computePass = encoder.beginComputePass({
       label: "Timing request",
       timestampWrites: { querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
     });
 
-    computePass.setPipeline(i == 0 ? computePipelineA : computePipelineB);
+    computePass.setPipeline(i % 2 == 0 ? computePipelineA : computePipelineB);
     computePass.setBindGroup(0, commonBindGroup);
     var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
     computePass.dispatchWorkgroups(dispatch_cube_size, dispatch_cube_size, dispatch_cube_size);
@@ -289,14 +289,19 @@ async function RunBenchmark() {
     stagingBufferDebug.unmap();
     //console.log(new Float32Array(data));
 
-    if (i == 0) {
-      timingA = time_in_seconds;
-    } else {
-      timingB = time_in_seconds;
+    if (i > 15) { // ignore first 16 runs
+      if (i % 2 == 0) {
+        timingA.push(time_in_seconds);
+      } else {
+        timingB.push(time_in_seconds);
+      }
     }
   }
+  timingA.sort((a, b) => a - b);
+  timingB.sort((a, b) => a - b);
+  console.log(timingA);
+  console.log(timingB);
 
-
-  setRunPass("Runs A time " + timingA.toFixed(2) + "ms ,  time b " + timingB.toFixed(2) + " ms");
+  setRunPass("Runs A time " + timingA[timingA.length / 2].toFixed(2) + "ms ,  time b " + timingB[timingB.length / 2].toFixed(2) + " ms");
 }
 
