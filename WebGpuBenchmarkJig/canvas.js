@@ -302,6 +302,6 @@ async function RunBenchmark() {
   console.log(timingA);
   console.log(timingB);
 
-  setRunPass("Runs A time " + timingA[timingA.length / 2].toFixed(2) + "ms ,  time b " + timingB[timingB.length / 2].toFixed(2) + " ms");
+  setRunPass("Runs A time " + timingA[timingA.length / 2].toFixed(4) + "ms ,  time b " + timingB[timingB.length / 2].toFixed(4) + " ms");
 }
 
