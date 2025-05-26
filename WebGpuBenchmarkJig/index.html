@@ -24,8 +24,15 @@
       <label for="enablef16">enable f16</label>
     </div>
     <br>
-    <label for="dispatchcubed">Dispatch size:</label>
     <input name="dispatchcubed" type="number" value="512" min="1" max="65536" step="1" id="dispatchcubedid" />
+    <label for="dispatchcubed">Dispatch size:</label>
+    <div class='section'>
+      <input type="checkbox" id="dispatchsizeuseb" name="dispatchsizeuseb" value="dispatchsizeuseb">
+      <label for="dispatchsizeuseb">Different dispatch sizes</label>
+      <input name="dispatchdiffb" type="number" value="512" min="1" max="65536" step="1" id="dispatchdiffbid" />
+      <label for="dispatchdiffb">B dispatch size:</label>
+    </div>
+
     <div class='section'>
       <div class='section'>
         <button id='runtestbutton'>

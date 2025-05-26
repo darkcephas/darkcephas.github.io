@@ -74,9 +74,18 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
     if (key == 'fullbench') {
       document.getElementById('fullbench').checked = 1;
     }
+    if (key == 'dispatchsizeuseb') {
+      document.getElementById('dispatchsizeuseb').checked = 1;
+    }
+    
+    if (key == 'dispatchdiffbid') {
+      document.getElementById('dispatchdiffbid').value = decodeURIComponent(value);
+    }
+
     if (key == 'dispatchcubedid') {
       document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
     }
+    
   }
 
   //https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
@@ -160,6 +169,11 @@ async function CurrentURLToCopy() {
   if(document.getElementById('fullbench').checked){
     full_url +=  '&fullbench=1';
   }
+  if(document.getElementById('dispatchsizeuseb').checked){
+     full_url +='&dispatchsizeuseb=1';
+     full_url +='&dispatchdiffbid=' + encodeURIComponent(document.getElementById('dispatchdiffbid').value);
+  }
+  
   navigator.clipboard.writeText(full_url).then(function () {
     console.log('Async: Copying to clipboard was successful!');
   }, function (err) {
@@ -302,6 +316,9 @@ async function RunBenchmark() {
     computePass.setPipeline(i % 2 == 0 ? computePipelineA : computePipelineB);
     computePass.setBindGroup(0, commonBindGroup);
     var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
+    if((i % 2) == 1 && document.getElementById('dispatchsizeuseb').checked){
+      dispatch_cube_size = document.getElementById('dispatchdiffbid').value;
+   }
     computePass.dispatchWorkgroups(dispatch_cube_size, 1, 1);
     computePass.end();
 
