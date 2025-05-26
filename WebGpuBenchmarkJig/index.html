@@ -17,9 +17,15 @@
     </div>
     <div class='section'>
       <input type="checkbox" id="enablesubgroup" name="enablesubgroup" value="enablesubgroup">
+      <label for="enablesubgroup">enable subgroups</label>
     </div>
+    <div class='section'>
+      <input type="checkbox" id="enablef16" name="enablef16" value="enablef16">
+      <label for="enablef16">enable f16</label>
+    </div>
+    <br>
     <label for="dispatchcubed">Dispatch size:</label>
-    <input name="dispatchcubed" type="number" value="16" min="1" max="256" step="1" id="dispatchcubedid" />
+    <input name="dispatchcubed" type="number" value="512" min="1" max="65536" step="1" id="dispatchcubedid" />
     <div class='section'>
       <div class='section'>
         <button id='runtestbutton'>

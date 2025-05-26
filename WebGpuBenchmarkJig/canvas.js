@@ -6,8 +6,9 @@ var querySet;
 var queryBuffer;
 
 var testresulttext;
-const kDebugArraySize = 1024 * 256;
-const kInputBufferCount = 1024 * 256;
+const kDebugArraySize = 32*1024*1024;
+const kInputBufferCount = 32*1024*1024;
+const kStagedReadSize = 1024;
 const timestampCapacity = 16;//Max number of timestamps we can store
 
 // https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
@@ -34,38 +35,7 @@ function setRunError(error_string) {
   testresulttext.style.color = "red";
 }
 
-window.onload = async function () {
-  const canvas = document.querySelector("canvas");
-  if (!canvas) {
-    throw new Error("No canvas.");
-  }
-
-  // Your WebGPU code will begin here!
-  if (!navigator.gpu) {
-    throw new Error("WebGPU not supported on this browser.");
-  }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    throw new Error("No appropriate GPUAdapter found.");
-  }
-
-  var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
-  // We dont need timestamps for this code to work but this is a prototype.
-  //     requiredLimits: {    maxComputeInvocationsPerWorkgroup: 1024,maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupStorageSize: 32768}
-  // , enablesubgroupflag ? "subgroups" : ""
-  device = await adapter.requestDevice({
-    requiredFeatures: ["timestamp-query"],
-
-  });
-
-  context = canvas.getContext("webgpu");
-  var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-  context.configure({
-    device: device,
-    format: canvasFormat,
-  });
-
-
+window.onload = async function(){
   const runthebenchmark = document.querySelector('#runtestbutton');
   runthebenchmark.addEventListener('click', RunBenchmark);
   testresulttext = document.querySelector("#testresulttext");
@@ -95,6 +65,15 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
     if (key == 'codeb') {
       document.getElementById('shadertextb').value = decodeURIComponent(value);
     }
+    if (key == 'enablef16') {
+      document.getElementById('enablef16').checked = 1; 
+    }
+    if (key == 'enablesubgroup') {
+      document.getElementById('enablesubgroup').checked = 1;
+    }
+    if (key == 'dispatchcubedid') {
+      document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
+    }
   }
 
   //https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
@@ -121,12 +100,61 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
   getcurrenturl.addEventListener('click', CurrentURLToCopy);
 }
 
+async function InitGPU () {
+  const canvas = document.querySelector("canvas");
+  if (!canvas) {
+    throw new Error("No canvas.");
+  }
+
+  // Your WebGPU code will begin here!
+  if (!navigator.gpu) {
+    throw new Error("WebGPU not supported on this browser.");
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("No appropriate GPUAdapter found.");
+  }
+
+  var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
+  var enablef16 = document.getElementById('enablef16').checked;
+  // We dont need timestamps for this code to work but this is a prototype.
+  //     requiredLimits: {    maxComputeInvocationsPerWorkgroup: 1024,maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupStorageSize: 32768}
+  // , enablesubgroupflag ? "subgroups" : ""
+  var features_list =  ["timestamp-query"];
+  if(enablesubgroupflag){
+    features_list.push("subgroups" );
+  }
+  if(enablef16){
+    features_list.push("shader-f16" );
+  }
+  device = await adapter.requestDevice({
+    requiredFeatures: features_list,
+  });
+
+  context = canvas.getContext("webgpu");
+  var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({
+    device: device,
+    format: canvasFormat,
+  });
+}
+
+
 
 
 async function CurrentURLToCopy() {
   //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
   var full_url = window.location.origin + window.location.pathname + '?codea=' + encodeURIComponent(document.getElementById('shadertexta').value) +
-    '&codeb=' + encodeURIComponent(document.getElementById('shadertextb').value);
+    '&codeb=' + encodeURIComponent(document.getElementById('shadertextb').value)
+      + '&dispatchcubedid=' + encodeURIComponent(document.getElementById('dispatchcubedid').value) ;
+
+  if(document.getElementById('enablesubgroup').checked){
+    full_url +=  '&enablesubgroup=1';
+  }
+  if(document.getElementById('enablef16').checked){
+    full_url +=  '&enablef16=1';
+  }
+
   navigator.clipboard.writeText(full_url).then(function () {
     console.log('Async: Copying to clipboard was successful!');
   }, function (err) {
@@ -134,8 +162,27 @@ async function CurrentURLToCopy() {
   });
 }
 
+function Drop25(sorted_list){
+  return sorted_list.slice(Math.floor(sorted_list.length / 4), sorted_list.length- Math.floor(sorted_list.length / 4));
+}
+
+function Median(sorted_list){
+  // Technically my friends the median of an even list is actually average of 2 numbers.
+  return sorted_list[Math.floor(sorted_list.length / 2)];
+}
+
+function Mean(sorted_list){
+  // Technically my friends the median of an even list is actually average of 2 numbers.
+  return sorted_list.reduce((a, b) => a + b) / sorted_list.length;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 
 async function RunBenchmark() {
+  await InitGPU();
   querySet = device.createQuerySet({
     type: "timestamp",
     count: timestampCapacity,
@@ -249,11 +296,11 @@ async function RunBenchmark() {
     computePass.setPipeline(i % 2 == 0 ? computePipelineA : computePipelineB);
     computePass.setBindGroup(0, commonBindGroup);
     var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
-    computePass.dispatchWorkgroups(dispatch_cube_size, dispatch_cube_size, dispatch_cube_size);
+    computePass.dispatchWorkgroups(dispatch_cube_size, 1, 1);
     computePass.end();
 
     const stagingBufferDebug = device.createBuffer({
-      size: kDebugArraySize,
+      size: kStagedReadSize,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     encoder.copyBufferToBuffer(
@@ -261,7 +308,7 @@ async function RunBenchmark() {
       0, // Source offset
       stagingBufferDebug,
       0, // Destination offset
-      kDebugArraySize
+      kStagedReadSize
     );
 
     encoder.resolveQuerySet(
@@ -282,26 +329,34 @@ async function RunBenchmark() {
     await stagingBufferDebug.mapAsync(
       GPUMapMode.READ,
       0, // Offset
-      kDebugArraySize // Length
+      kStagedReadSize // Length
     );
     const copyArrayBuffer = stagingBufferDebug.getMappedRange();
     const data = copyArrayBuffer.slice();
     stagingBufferDebug.unmap();
     //console.log(new Float32Array(data));
-
+    const speed_timing = 1.0/ time_in_seconds;
     if (i > 15) { // ignore first 16 runs
       if (i % 2 == 0) {
-        timingA.push(time_in_seconds);
+        timingA.push(speed_timing);
       } else {
-        timingB.push(time_in_seconds);
+        timingB.push(speed_timing);
       }
     }
+
+   // await sleep(100.0*Math.random());
   }
-  timingA.sort((a, b) => a - b);
-  timingB.sort((a, b) => a - b);
+  timingA = timingA.sort((a, b) => a - b);
+  timingB = timingB.sort((a, b) => a - b);
+  timingA = Drop25(timingA);
+  timingB = Drop25(timingB);
+
   console.log(timingA);
   console.log(timingB);
 
-  setRunPass("Runs A time " + timingA[timingA.length / 2].toFixed(4) + "ms ,  time b " + timingB[timingB.length / 2].toFixed(4) + " ms");
+  const med_timing_secA = 1.0/Mean(timingA);
+  const med_timing_secB = 1.0/Mean(timingB);
+
+  setRunPass("Runs A time " + med_timing_secA.toFixed(4) + "ms ,  time b " + med_timing_secB.toFixed(4) + " ms");
 }
 
