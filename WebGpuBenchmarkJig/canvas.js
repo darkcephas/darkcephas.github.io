@@ -71,6 +71,9 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
     if (key == 'enablesubgroup') {
       document.getElementById('enablesubgroup').checked = 1;
     }
+    if (key == 'fullbench') {
+      document.getElementById('fullbench').checked = 1;
+    }
     if (key == 'dispatchcubedid') {
       document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
     }
@@ -154,7 +157,9 @@ async function CurrentURLToCopy() {
   if(document.getElementById('enablef16').checked){
     full_url +=  '&enablef16=1';
   }
-
+  if(document.getElementById('fullbench').checked){
+    full_url +=  '&fullbench=1';
+  }
   navigator.clipboard.writeText(full_url).then(function () {
     console.log('Async: Copying to clipboard was successful!');
   }, function (err) {
@@ -286,7 +291,8 @@ async function RunBenchmark() {
 
   var timingA = [];
   var timingB = [];
-  for (var i = 0; i < 256; i++) {
+  var iter_count =  document.getElementById('fullbench').checked? 2048:256;
+  for (var i = 0; i < iter_count; i++) {
     const encoder = device.createCommandEncoder();
     const computePass = encoder.beginComputePass({
       label: "Timing request",
