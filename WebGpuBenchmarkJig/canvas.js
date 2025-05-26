@@ -262,7 +262,7 @@ async function RunBenchmark() {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-  for (let i = 0; i < floatInitArray.length; i += 6) {
+  for (let i = 0; i < floatInitArray.length; i ++) {
     floatInitArray[i] = Math.random();
   }
   device.queue.writeBuffer(inputBufferStorage, 0, floatInitArray, 0, floatInitArray.length);
@@ -340,8 +340,15 @@ async function RunBenchmark() {
     const copyArrayBuffer = stagingBufferDebug.getMappedRange();
     const data = copyArrayBuffer.slice();
     stagingBufferDebug.unmap();
-    //console.log(new Float32Array(data));
+    const data_to_print = new Float32Array(data);
     const speed_timing = 1.0/ time_in_seconds;
+    // First runs we save off the data.
+    if(i ==0){
+      document.getElementById('resultstexta').value = data_to_print;
+    }else if(i ==1){
+      document.getElementById('resultstextb').value = data_to_print;
+    }
+
     if (i > 15) { // ignore first 16 runs
       if (i % 2 == 0) {
         timingA.push(speed_timing);
