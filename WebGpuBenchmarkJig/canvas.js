@@ -35,6 +35,12 @@ function setRunError(error_string) {
   testresulttext.style.color = "red";
 }
 
+function SetDiffDispatchBState(){
+      document.getElementById('dispatchdiffbid').disabled = 
+          !document.getElementById('dispatchsizeuseb').checked;
+}
+
+
 window.onload = async function(){
   const runthebenchmark = document.querySelector('#runtestbutton');
   runthebenchmark.addEventListener('click', RunBenchmark);
@@ -107,6 +113,8 @@ fn computeMain(@builtin(local_invocation_index) idx: u32,
 
   document.getElementById('shadertexta').addEventListener('keydown', tabs_allow_func);
   document.getElementById('shadertextb').addEventListener('keydown', tabs_allow_func);
+  SetDiffDispatchBState();
+  document.getElementById('dispatchsizeuseb').onclick = async function(){ SetDiffDispatchBState();};
 
   const getcurrenturl = document.querySelector('#getcurrenturl');
   getcurrenturl.addEventListener('click', CurrentURLToCopy);
