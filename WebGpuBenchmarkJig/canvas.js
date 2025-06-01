@@ -6,8 +6,8 @@ var querySet;
 var queryBuffer;
 
 var testresulttext;
-const kDebugArraySize = 32*1024*1024;
-const kInputBufferCount = 32*1024*1024;
+const kDebugArraySize = 32 * 1024 * 1024;
+const kInputBufferCount = 32 * 1024 * 1024;
 const kStagedReadSize = 1024;
 const timestampCapacity = 16;//Max number of timestamps we can store
 
@@ -25,353 +25,354 @@ async function readBuffer(device, buffer) {
 }
 
 
-function setRunPass(passed_string) {
-  testresulttext.innerHTML = passed_string;
+
+  function setRunPass(passed_string) {
+    testresulttext.innerHTML = passed_string;
   testresulttext.style.color = "green";
 }
 
-function setRunError(error_string) {
-  testresulttext.innerHTML = error_string;
+  function setRunError(error_string) {
+    testresulttext.innerHTML = error_string;
   testresulttext.style.color = "red";
 }
 
-function SetDiffDispatchBState(){
-      document.getElementById('dispatchdiffbid').disabled = 
-          !document.getElementById('dispatchsizeuseb').checked;
+  function SetDiffDispatchBState(){
+    document.getElementById('dispatchdiffbid').disabled =
+    !document.getElementById('dispatchsizeuseb').checked;
 }
 
 
-window.onload = async function(){
+  window.onload = async function(){
   const runthebenchmark = document.querySelector('#runtestbutton');
   runthebenchmark.addEventListener('click', RunBenchmark);
   testresulttext = document.querySelector("#testresulttext");
 
   var default_code =
-    `  
-@group(0)@binding(0) var <storage,read >  _in :array< f32 >;
-@group(0)@binding(1) var <storage,read_write > _out: array < f32 >;
+  `
+  @group(0)@binding(0) var <storage,read >  _in :array< f32 >;
+    @group(0)@binding(1) var <storage,read_write > _out: array < f32 >;
 
-@compute @workgroup_size(256)
-fn computeMain(@builtin(local_invocation_index) idx: u32,
-               @builtin(workgroup_id) wg: vec3u) {
-  _out[idx] = _in[idx];
+      @compute @workgroup_size(256)
+      fn computeMain(@builtin(local_invocation_index) idx: u32,
+      @builtin(workgroup_id) wg: vec3u) {
+        _out[idx] = _in[idx];
 }
-`;
+      `;
 
-  const paramsString = window.location.search;
-  const mySearchParams = new URLSearchParams(paramsString);
+      const paramsString = window.location.search;
+      const mySearchParams = new URLSearchParams(paramsString);
 
-  document.getElementById('shadertexta').value = default_code
-  document.getElementById('shadertextb').value = default_code;
+      document.getElementById('shadertexta').value = default_code
+      document.getElementById('shadertextb').value = default_code;
 
-  for (const [key, value] of mySearchParams) {
+      for (const [key, value] of mySearchParams) {
     if (key == 'codea') {
-      document.getElementById('shadertexta').value = decodeURIComponent(value);
+        document.getElementById('shadertexta').value = decodeURIComponent(value);
     }
-    if (key == 'codeb') {
-      document.getElementById('shadertextb').value = decodeURIComponent(value);
+      if (key == 'codeb') {
+        document.getElementById('shadertextb').value = decodeURIComponent(value);
     }
-    if (key == 'enablef16') {
-      document.getElementById('enablef16').checked = 1; 
+      if (key == 'enablef16') {
+        document.getElementById('enablef16').checked = 1; 
     }
-    if (key == 'enablesubgroup') {
-      document.getElementById('enablesubgroup').checked = 1;
+      if (key == 'enablesubgroup') {
+        document.getElementById('enablesubgroup').checked = 1;
     }
-    if (key == 'fullbench') {
-      document.getElementById('fullbench').checked = 1;
+      if (key == 'fullbench') {
+        document.getElementById('fullbench').checked = 1;
     }
-    if (key == 'dispatchsizeuseb') {
-      document.getElementById('dispatchsizeuseb').checked = 1;
-    }
-    
-    if (key == 'dispatchdiffbid') {
-      document.getElementById('dispatchdiffbid').value = decodeURIComponent(value);
+      if (key == 'dispatchsizeuseb') {
+        document.getElementById('dispatchsizeuseb').checked = 1;
     }
 
-    if (key == 'dispatchcubedid') {
-      document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
+      if (key == 'dispatchdiffbid') {
+        document.getElementById('dispatchdiffbid').value = decodeURIComponent(value);
+    }
+
+      if (key == 'dispatchcubedid') {
+        document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
     }
     
   }
 
-  //https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
-  var tabs_allow_func = function (e) {
+      //https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
+      var tabs_allow_func = function (e) {
     if (e.key == 'Tab') {
-      e.preventDefault();
+        e.preventDefault();
       var start = this.selectionStart;
       var end = this.selectionEnd;
 
       // set textarea value to: text before caret + tab + text after caret
       this.value = this.value.substring(0, start) +
-        "\t" + this.value.substring(end);
+      "\t" + this.value.substring(end);
 
       // put caret at right position again
       this.selectionStart =
-        this.selectionEnd = start + 1;
+      this.selectionEnd = start + 1;
     }
   };
 
-  document.getElementById('shadertexta').addEventListener('keydown', tabs_allow_func);
-  document.getElementById('shadertextb').addEventListener('keydown', tabs_allow_func);
-  SetDiffDispatchBState();
-  document.getElementById('dispatchsizeuseb').onclick = async function(){ SetDiffDispatchBState();};
+      document.getElementById('shadertexta').addEventListener('keydown', tabs_allow_func);
+      document.getElementById('shadertextb').addEventListener('keydown', tabs_allow_func);
+      SetDiffDispatchBState();
+      document.getElementById('dispatchsizeuseb').onclick = async function(){SetDiffDispatchBState();};
 
-  const getcurrenturl = document.querySelector('#getcurrenturl');
-  getcurrenturl.addEventListener('click', CurrentURLToCopy);
+      const getcurrenturl = document.querySelector('#getcurrenturl');
+      getcurrenturl.addEventListener('click', CurrentURLToCopy);
 }
 
-async function InitGPU () {
+      async function InitGPU () {
   const canvas = document.querySelector("canvas");
-  if (!canvas) {
+      if (!canvas) {
     throw new Error("No canvas.");
   }
 
-  // Your WebGPU code will begin here!
-  if (!navigator.gpu) {
+      // Your WebGPU code will begin here!
+      if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
   }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
     throw new Error("No appropriate GPUAdapter found.");
   }
 
-  var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
-  var enablef16 = document.getElementById('enablef16').checked;
+      var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
+      var enablef16 = document.getElementById('enablef16').checked;
   // We dont need timestamps for this code to work but this is a prototype.
-  //     requiredLimits: {    maxComputeInvocationsPerWorkgroup: 1024,maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupStorageSize: 32768}
-  // , enablesubgroupflag ? "subgroups" : ""
-  var features_list =  ["timestamp-query"];
-  if(enablesubgroupflag){
-    features_list.push("subgroups" );
+  //     requiredLimits: {maxComputeInvocationsPerWorkgroup: 1024,maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupStorageSize: 32768}
+      // , enablesubgroupflag ? "subgroups" : ""
+      var features_list =  ["timestamp-query"];
+      if(enablesubgroupflag){
+        features_list.push("subgroups");
   }
-  if(enablef16){
-    features_list.push("shader-f16" );
+      if(enablef16){
+        features_list.push("shader-f16");
   }
-  device = await adapter.requestDevice({
-    requiredFeatures: features_list,
+      device = await adapter.requestDevice({
+        requiredFeatures: features_list,
   });
 
-  context = canvas.getContext("webgpu");
-  var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-  context.configure({
-    device: device,
-    format: canvasFormat,
+      context = canvas.getContext("webgpu");
+      var canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+      context.configure({
+        device: device,
+      format: canvasFormat,
   });
 }
 
 
 
 
-async function CurrentURLToCopy() {
+      async function CurrentURLToCopy() {
   //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
   var full_url = window.location.origin + window.location.pathname + '?codea=' + encodeURIComponent(document.getElementById('shadertexta').value) +
-    '&codeb=' + encodeURIComponent(document.getElementById('shadertextb').value)
+      '&codeb=' + encodeURIComponent(document.getElementById('shadertextb').value)
       + '&dispatchcubedid=' + encodeURIComponent(document.getElementById('dispatchcubedid').value) ;
 
-  if(document.getElementById('enablesubgroup').checked){
-    full_url +=  '&enablesubgroup=1';
+      if(document.getElementById('enablesubgroup').checked){
+        full_url += '&enablesubgroup=1';
   }
-  if(document.getElementById('enablef16').checked){
-    full_url +=  '&enablef16=1';
+      if(document.getElementById('enablef16').checked){
+        full_url += '&enablef16=1';
   }
-  if(document.getElementById('fullbench').checked){
-    full_url +=  '&fullbench=1';
+      if(document.getElementById('fullbench').checked){
+        full_url += '&fullbench=1';
   }
-  if(document.getElementById('dispatchsizeuseb').checked){
-     full_url +='&dispatchsizeuseb=1';
-     full_url +='&dispatchdiffbid=' + encodeURIComponent(document.getElementById('dispatchdiffbid').value);
+      if(document.getElementById('dispatchsizeuseb').checked){
+        full_url += '&dispatchsizeuseb=1';
+      full_url +='&dispatchdiffbid=' + encodeURIComponent(document.getElementById('dispatchdiffbid').value);
   }
-  
-  navigator.clipboard.writeText(full_url).then(function () {
-    console.log('Async: Copying to clipboard was successful!');
+
+      navigator.clipboard.writeText(full_url).then(function () {
+        console.log('Async: Copying to clipboard was successful!');
   }, function (err) {
-    console.error('Async: Could not copy text: ', err);
+        console.error('Async: Could not copy text: ', err);
   });
 }
 
-function Drop25(sorted_list){
+      function Drop25(sorted_list){
   return sorted_list.slice(Math.floor(sorted_list.length / 4), sorted_list.length- Math.floor(sorted_list.length / 4));
 }
 
-function Median(sorted_list){
+      function Median(sorted_list){
   // Technically my friends the median of an even list is actually average of 2 numbers.
   return sorted_list[Math.floor(sorted_list.length / 2)];
 }
 
-function Mean(sorted_list){
+      function Mean(sorted_list){
   // Technically my friends the median of an even list is actually average of 2 numbers.
   return sorted_list.reduce((a, b) => a + b) / sorted_list.length;
 }
 
-function sleep(ms) {
+      function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 
-async function RunBenchmark() {
-  await InitGPU();
-  querySet = device.createQuerySet({
-    type: "timestamp",
-    count: timestampCapacity,
+      async function RunBenchmark() {
+        await InitGPU();
+      querySet = device.createQuerySet({
+        type: "timestamp",
+      count: timestampCapacity,
   });
-  queryBuffer = device.createBuffer({
-    size: 8 * timestampCapacity,
-    usage: GPUBufferUsage.QUERY_RESOLVE
+      queryBuffer = device.createBuffer({
+        size: 8 * timestampCapacity,
+      usage: GPUBufferUsage.QUERY_RESOLVE
       | GPUBufferUsage.STORAGE
       | GPUBufferUsage.COPY_SRC
       | GPUBufferUsage.COPY_DST,
   });
 
-  // Create the bind group layout and pipeline layout.
-  let bindGroupLayout = device.createBindGroupLayout({
-    label: "Cell Bind Group Layout",
-    entries: [{
-      binding: 0,
+      // Create the bind group layout and pipeline layout.
+      let bindGroupLayout = device.createBindGroupLayout({
+        label: "Cell Bind Group Layout",
+      entries: [{
+        binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "read-only-storage" } // input
+      buffer: {type: "read-only-storage" } // input
     }, {
-      binding: 1,
+        binding: 1,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" } // output
+      buffer: {type: "storage" } // output
     }]
   });
 
-  const pipelineLayout = device.createPipelineLayout({
-    label: "Main Pipeline Layout",
-    bindGroupLayouts: [bindGroupLayout],
+      const pipelineLayout = device.createPipelineLayout({
+        label: "Main Pipeline Layout",
+      bindGroupLayouts: [bindGroupLayout],
   });
 
 
-  var shaderCodeA = document.getElementById('shadertexta').value;
-  var shaderCodeB = document.getElementById('shadertextb').value;
+      var shaderCodeA = document.getElementById('shadertexta').value;
+      var shaderCodeB = document.getElementById('shadertextb').value;
 
-  let shaderModuleA = device.createShaderModule({
-    label: "Benchmark compute shader",
-    code: shaderCodeA,
+      let shaderModuleA = device.createShaderModule({
+        label: "Benchmark compute shader",
+      code: shaderCodeA,
   });
 
-  // Create a compute pipeline that updates the game state.
-  let computePipelineA = device.createComputePipeline({
-    label: "Render pipeline",
-    layout: pipelineLayout,
-    compute: {
-      module: shaderModuleA,
+      // Create a compute pipeline that updates the game state.
+      let computePipelineA = device.createComputePipeline({
+        label: "Render pipeline",
+      layout: pipelineLayout,
+      compute: {
+        module: shaderModuleA,
       entryPoint: "computeMain",
     }
   });
 
-  let shaderModuleB = device.createShaderModule({
-    label: "Benchmark compute shader",
-    code: shaderCodeB,
+      let shaderModuleB = device.createShaderModule({
+        label: "Benchmark compute shader",
+      code: shaderCodeB,
   });
 
-  // Create a compute pipeline that updates the game state.
-  let computePipelineB = device.createComputePipeline({
-    label: "Render pipeline",
-    layout: pipelineLayout,
-    compute: {
-      module: shaderModuleB,
+      // Create a compute pipeline that updates the game state.
+      let computePipelineB = device.createComputePipeline({
+        label: "Render pipeline",
+      layout: pipelineLayout,
+      compute: {
+        module: shaderModuleB,
       entryPoint: "computeMain",
     }
   });
 
-  // fill buffer with the init data.
-  const floatInitArray = new Float32Array(kInputBufferCount);
-  let inputBufferStorage =
-    device.createBuffer({
-      label: "Init input array",
+      // fill buffer with the init data.
+      const floatInitArray = new Float32Array(kInputBufferCount);
+      let inputBufferStorage =
+      device.createBuffer({
+        label: "Init input array",
       size: floatInitArray.byteLength, // this isnt quite right...
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-  for (let i = 0; i < floatInitArray.length; i ++) {
-    floatInitArray[i] = Math.random();
+      for (let i = 0; i < floatInitArray.length; i ++) {
+        floatInitArray[i] = Math.random();
   }
-  device.queue.writeBuffer(inputBufferStorage, 0, floatInitArray, 0, floatInitArray.length);
+      device.queue.writeBuffer(inputBufferStorage, 0, floatInitArray, 0, floatInitArray.length);
 
-  let debuggingBufferStorage =
-    device.createBuffer({
-      label: "debugging storage result",
+      let debuggingBufferStorage =
+      device.createBuffer({
+        label: "debugging storage result",
       size: kDebugArraySize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
-  let commonBindGroup =
-    device.createBindGroup({
-      label: "Compute renderer bind group A",
+      let commonBindGroup =
+      device.createBindGroup({
+        label: "Compute renderer bind group A",
       layout: bindGroupLayout, // Updated Line
       entries: [{
         binding: 0,
-        resource: { buffer: inputBufferStorage }
+      resource: {buffer: inputBufferStorage }
       }, {
         binding: 1,
-        resource: { buffer: debuggingBufferStorage }
+      resource: {buffer: debuggingBufferStorage }
       }
       ],
     });
 
 
-  var timingA = [];
-  var timingB = [];
-  var iter_count =  document.getElementById('fullbench').checked? 2048:256;
-  for (var i = 0; i < iter_count; i++) {
+      var timingA = [];
+      var timingB = [];
+      var iter_count =  document.getElementById('fullbench').checked? 2048:256;
+      for (var i = 0; i < iter_count; i++) {
     const encoder = device.createCommandEncoder();
-    const computePass = encoder.beginComputePass({
-      label: "Timing request",
-      timestampWrites: { querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
+      const computePass = encoder.beginComputePass({
+        label: "Timing request",
+      timestampWrites: {querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
     });
 
-    computePass.setPipeline(i % 2 == 0 ? computePipelineA : computePipelineB);
-    computePass.setBindGroup(0, commonBindGroup);
-    var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
-    if((i % 2) == 1 && document.getElementById('dispatchsizeuseb').checked){
-      dispatch_cube_size = document.getElementById('dispatchdiffbid').value;
+      computePass.setPipeline(i % 2 == 0 ? computePipelineA : computePipelineB);
+      computePass.setBindGroup(0, commonBindGroup);
+      var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
+      if((i % 2) == 1 && document.getElementById('dispatchsizeuseb').checked){
+        dispatch_cube_size = document.getElementById('dispatchdiffbid').value;
    }
-    computePass.dispatchWorkgroups(dispatch_cube_size, 1, 1);
-    computePass.end();
+      computePass.dispatchWorkgroups(dispatch_cube_size, 1, 1);
+      computePass.end();
 
-    const stagingBufferDebug = device.createBuffer({
-      size: kStagedReadSize,
+      const stagingBufferDebug = device.createBuffer({
+        size: kStagedReadSize,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-    encoder.copyBufferToBuffer(
+      encoder.copyBufferToBuffer(
       debuggingBufferStorage,
       0, // Source offset
       stagingBufferDebug,
       0, // Destination offset
       kStagedReadSize
-    );
+      );
 
-    encoder.resolveQuerySet(
+      encoder.resolveQuerySet(
       querySet,
-      0,// index of first query to resolve 
+      0,// index of first query to resolve
       timestampCapacity,//number of queries to resolve
       queryBuffer,
       0);// destination offset
 
-    const commandBuffer = encoder.finish();
+      const commandBuffer = encoder.finish();
 
-    device.queue.submit([commandBuffer]);
-    const arrayBuffer = await readBuffer(device, queryBuffer);
-    const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-    const time_in_seconds = Number(timingsNanoseconds[1] - timingsNanoseconds[0]) / 1000000.0;
+      device.queue.submit([commandBuffer]);
+      const arrayBuffer = await readBuffer(device, queryBuffer);
+      const timingsNanoseconds = new BigInt64Array(arrayBuffer);
+      const time_in_seconds = Number(timingsNanoseconds[1] - timingsNanoseconds[0]) / 1000000.0;
 
 
-    await stagingBufferDebug.mapAsync(
+      await stagingBufferDebug.mapAsync(
       GPUMapMode.READ,
       0, // Offset
       kStagedReadSize // Length
-    );
-    const copyArrayBuffer = stagingBufferDebug.getMappedRange();
-    const data = copyArrayBuffer.slice();
-    stagingBufferDebug.unmap();
-    const data_to_print = new Float32Array(data);
-    const speed_timing = 1.0/ time_in_seconds;
-    // First runs we save off the data.
-    if(i ==0){
-      document.getElementById('resultstexta').value = data_to_print;
+      );
+      const copyArrayBuffer = stagingBufferDebug.getMappedRange();
+      const data = copyArrayBuffer.slice();
+      stagingBufferDebug.unmap();
+      const data_to_print = new Float32Array(data);
+      const speed_timing = 1.0/ time_in_seconds;
+      // First runs we save off the data.
+      if(i ==0){
+        document.getElementById('resultstexta').value = data_to_print;
     }else if(i ==1){
-      document.getElementById('resultstextb').value = data_to_print;
+        document.getElementById('resultstextb').value = data_to_print;
     }
 
     if (i > 15) { // ignore first 16 runs
@@ -386,15 +387,15 @@ async function RunBenchmark() {
   }
   timingA = timingA.sort((a, b) => a - b);
   timingB = timingB.sort((a, b) => a - b);
-  timingA = Drop25(timingA);
-  timingB = Drop25(timingB);
+      timingA = Drop25(timingA);
+      timingB = Drop25(timingB);
 
-  console.log(timingA);
-  console.log(timingB);
+      console.log(timingA);
+      console.log(timingB);
 
-  const med_timing_secA = 1.0/Mean(timingA);
-  const med_timing_secB = 1.0/Mean(timingB);
+      const med_timing_secA = 1.0/Mean(timingA);
+      const med_timing_secB = 1.0/Mean(timingB);
 
-  setRunPass("Runs A time " + med_timing_secA.toFixed(4) + "ms ,  time b " + med_timing_secB.toFixed(4) + " ms");
+      setRunPass("Runs A time " + med_timing_secA.toFixed(4) + "ms ,  time b " + med_timing_secB.toFixed(4) + " ms");
 }
 
