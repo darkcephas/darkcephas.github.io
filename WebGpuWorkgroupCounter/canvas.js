@@ -11,7 +11,7 @@ const kInputBufferCount = 32 * 1024 * 1024;
 const kStagedReadSize = 1024;
 const timestampCapacity = 16;//Max number of timestamps we can store
 
-var maxWorkgroupSize= 256;
+var maxWorkgroupSize = 256;
 var maxNumIterations = 10;
 // https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
 // For timestamps
@@ -119,8 +119,8 @@ var<workgroup> wIsWaitDone:u32; // default zero
     if (key == 'enablesubgroup') {
       document.getElementById('enablesubgroup').checked = 1;
     }
-    if (key == 'dispatchsizeuseb') {
-      document.getElementById('dispatchsizeuseb').checked = 1;
+    if (key == 'dispatchcubedid') {
+      document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
     }
   }
 
@@ -162,7 +162,7 @@ async function InitGPU() {
     throw new Error("No appropriate GPUAdapter found.");
   }
 
-  maxWorkgroupSize =  Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup,adapter.limits.maxComputeWorkgroupSizeX);
+  maxWorkgroupSize = Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup, adapter.limits.maxComputeWorkgroupSizeX);
 
   var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
 
@@ -177,8 +177,8 @@ async function InitGPU() {
   device = await adapter.requestDevice({
     requiredFeatures: features_list,
     requiredLimits: {
-      maxComputeInvocationsPerWorkgroup:maxWorkgroupSize,
-      maxComputeWorkgroupSizeX:maxWorkgroupSize,
+      maxComputeInvocationsPerWorkgroup: maxWorkgroupSize,
+      maxComputeWorkgroupSizeX: maxWorkgroupSize,
     }
   });
 
@@ -269,9 +269,9 @@ async function RunBenchmark() {
       module: shaderModuleA,
       entryPoint: "computeMain",
       constants: {
-        oDispatchSize : dispatch_cube_size,
+        oDispatchSize: dispatch_cube_size,
         oMaxWorkgroupSize: maxWorkgroupSize,
-        oMaxNumIterations:maxNumIterations,
+        oMaxNumIterations: maxNumIterations,
       }
     },
   });
@@ -326,14 +326,14 @@ async function RunBenchmark() {
 
   var time_in_seconds;
   const kNumRuns = 10;
-  for(var i =0; i < kNumRuns; i++){
+  for (var i = 0; i < kNumRuns; i++) {
     const encoder = device.createCommandEncoder();
     const computePass = encoder.beginComputePass({
       label: "Timing request",
       timestampWrites: { querySet: querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 },
     });
 
-    computePass.setPipeline( computePipelineA );
+    computePass.setPipeline(computePipelineA);
     computePass.setBindGroup(0, commonBindGroup);
 
     computePass.dispatchWorkgroups(dispatch_cube_size, 1, 1);
@@ -381,6 +381,6 @@ async function RunBenchmark() {
     await sleep(200);
   }
 
- 
+
 }
 
