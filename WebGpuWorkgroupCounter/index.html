@@ -1,7 +1,5 @@
 <!doctype html>
-
 <html>
-
 <head>
   <meta charset="utf-8">
   <title>WebGPU Workgroup Counter </title>
@@ -16,13 +14,13 @@
     <div class='sectionTitle'>WebGPU Workgroup Counter 
     </div>
     <div class='section'>
-      <input type="checkbox" id="enablesubgroup" name="enablesubgroup" value="enablesubgroup">
-      <label for="enablesubgroup">enable subgroups</label>
+      <input type="checkbox" id="enableMaxWorkgroupSize" name="enableMaxWorkgroupSize" value="enableMaxWorkgroupSize">
+      <label for="enableMaxWorkgroupSize">Enable max workgroup size - </label>
     </div>
 
     <br>
-    <input name="dispatchcubed" type="number" value="512" min="1" max="65536" step="1" id="dispatchcubedid" />
     <label for="dispatchcubed">Dispatch size:</label>
+    <input name="dispatchcubed" type="number" value="1024" min="1" max="65536" step="1" id="dispatchcubedid" />
     <div class='section'>
       <div class='section'>
         <button id='runtestbutton'>
@@ -41,7 +39,7 @@
     Shader Code:
     <div class='section'>
       <textarea name="shadertexta"  id="shadertexta"  cols="81" rows="20" >
-        code A.
+code A.
       </textarea>
     </div>
     <br>
@@ -49,13 +47,9 @@
     Output :
     <div class='section'>
       <textarea name="resultstexta"  id="resultstexta"  cols="81" rows="20" >
-        No results
+No results
       </textarea>
     </div>
-
-
   </div>
-
 </body>
-
 </html>

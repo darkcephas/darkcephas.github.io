@@ -37,9 +37,6 @@ function setRunError(error_string) {
   testresulttext.style.color = "red";
 }
 
-
-
-
 window.onload = async function () {
   const runthebenchmark = document.querySelector('#runtestbutton');
   runthebenchmark.addEventListener('click', RunBenchmark);
@@ -113,11 +110,11 @@ var<workgroup> wIsWaitDone:u32; // default zero
 
 
   for (const [key, value] of mySearchParams) {
-    if (key == 'codea') {
+    if (key == 'shadertexta') {
       document.getElementById('shadertexta').value = decodeURIComponent(value);
     }
-    if (key == 'enablesubgroup') {
-      document.getElementById('enablesubgroup').checked = 1;
+    if (key == 'enableMaxWorkgroupSize') {
+      document.getElementById('enableMaxWorkgroupSize').checked = 1;
     }
     if (key == 'dispatchcubedid') {
       document.getElementById('dispatchcubedid').value = decodeURIComponent(value);
@@ -162,16 +159,13 @@ async function InitGPU() {
     throw new Error("No appropriate GPUAdapter found.");
   }
 
-  maxWorkgroupSize = Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup, adapter.limits.maxComputeWorkgroupSizeX);
 
-  var enablesubgroupflag = document.getElementById('enablesubgroup').checked;
+  var enableMaxWorkgroupSize = document.getElementById('enableMaxWorkgroupSize').checked;
 
-  // We dont need timestamps for this code to work but this is a prototype.
-  //     requiredLimits: {    maxComputeInvocationsPerWorkgroup: 1024,maxComputeWorkgroupSizeX: 1024, maxComputeWorkgroupStorageSize: 32768}
-  // , enablesubgroupflag ? "subgroups" : ""
   var features_list = ["timestamp-query"];
-  if (enablesubgroupflag) {
-    features_list.push("subgroups");
+  if (enableMaxWorkgroupSize) {
+    maxWorkgroupSize = Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup,
+      adapter.limits.maxComputeWorkgroupSizeX);
   }
 
   device = await adapter.requestDevice({
@@ -195,11 +189,12 @@ async function InitGPU() {
 
 async function CurrentURLToCopy() {
   //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
-  var full_url = window.location.origin + window.location.pathname + '?codea=' + encodeURIComponent(document.getElementById('shadertexta').value) +
-    + '&dispatchcubedid=' + encodeURIComponent(document.getElementById('dispatchcubedid').value);
+  var full_url = window.location.origin + window.location.pathname + '?shadertexta=' + 
+    encodeURIComponent(document.getElementById('shadertexta').value) + 
+    '&dispatchcubedid=' + encodeURIComponent(document.getElementById('dispatchcubedid').value);
 
-  if (document.getElementById('enablesubgroup').checked) {
-    full_url += '&enablesubgroup=1';
+  if (document.getElementById('enableMaxWorkgroupSize').checked) {
+    full_url += '&enableMaxWorkgroupSize=1';
   }
 
   navigator.clipboard.writeText(full_url).then(function () {
@@ -253,15 +248,20 @@ async function RunBenchmark() {
 
 
   var shaderCodeA = document.getElementById('shadertexta').value;
-
-  var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
-
   let shaderModuleA = device.createShaderModule({
     label: "Benchmark compute shader",
     code: shaderCodeA,
   });
 
+  const shaderInfo = await shaderModuleA.getCompilationInfo();
+
+  if(shaderInfo.messages.length > 0){
+    setRunError(shaderInfo.messages[0].message + " line " + shaderInfo.messages[0].lineNum);
+    return;
+  }
+
   // Create a compute pipeline that updates the game state.
+  var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
   let computePipelineA = device.createComputePipeline({
     label: "Render pipeline",
     layout: pipelineLayout,
@@ -378,9 +378,8 @@ async function RunBenchmark() {
 
     document.getElementById('resultstexta').value = data_to_print;
     setRunPass("Runs A time " + time_in_seconds.toFixed(5) + "ms ");
-    await sleep(200);
+    await sleep(100);
   }
-
 
 }
 
