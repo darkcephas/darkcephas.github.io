@@ -11,8 +11,8 @@ const kInputBufferCount = 32 * 1024 * 1024;
 const kStagedReadSize = 1024;
 const timestampCapacity = 16;//Max number of timestamps we can store
 
-var maxWorkgroupSize = 256;
 var maxNumIterations = 10;
+var limitsMaxWorkgroupSize = 256;
 // https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
 // For timestamps
 async function readBuffer(device, buffer) {
@@ -159,20 +159,14 @@ async function InitGPU() {
     throw new Error("No appropriate GPUAdapter found.");
   }
 
-
-  var enableMaxWorkgroupSize = document.getElementById('enableMaxWorkgroupSize').checked;
-
   var features_list = ["timestamp-query"];
-  if (enableMaxWorkgroupSize) {
-    maxWorkgroupSize = Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup,
-      adapter.limits.maxComputeWorkgroupSizeX);
-  }
-
+  limitsMaxWorkgroupSize = Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup,
+    adapter.limits.maxComputeWorkgroupSizeX);
   device = await adapter.requestDevice({
     requiredFeatures: features_list,
     requiredLimits: {
-      maxComputeInvocationsPerWorkgroup: maxWorkgroupSize,
-      maxComputeWorkgroupSizeX: maxWorkgroupSize,
+      maxComputeInvocationsPerWorkgroup: limitsMaxWorkgroupSize,
+      maxComputeWorkgroupSizeX: limitsMaxWorkgroupSize,
     }
   });
 
@@ -189,8 +183,8 @@ async function InitGPU() {
 
 async function CurrentURLToCopy() {
   //https://stackoverflow.com/questions/400212/how-do-i-copy-to-the-clipboard-in-javascript
-  var full_url = window.location.origin + window.location.pathname + '?shadertexta=' + 
-    encodeURIComponent(document.getElementById('shadertexta').value) + 
+  var full_url = window.location.origin + window.location.pathname + '?shadertexta=' +
+    encodeURIComponent(document.getElementById('shadertexta').value) +
     '&dispatchcubedid=' + encodeURIComponent(document.getElementById('dispatchcubedid').value);
 
   if (document.getElementById('enableMaxWorkgroupSize').checked) {
@@ -255,10 +249,17 @@ async function RunBenchmark() {
 
   const shaderInfo = await shaderModuleA.getCompilationInfo();
 
-  if(shaderInfo.messages.length > 0){
+  if (shaderInfo.messages.length > 0) {
     setRunError(shaderInfo.messages[0].message + " line " + shaderInfo.messages[0].lineNum);
     return;
   }
+
+  var enableMaxWorkgroupSize = document.getElementById('enableMaxWorkgroupSize').checked;
+  var maxWorkgroupSize = 256;
+  if (enableMaxWorkgroupSize) {
+    maxWorkgroupSize = limitsMaxWorkgroupSize;
+  }
+
 
   // Create a compute pipeline that updates the game state.
   var dispatch_cube_size = Number(document.getElementById("dispatchcubedid").value);
