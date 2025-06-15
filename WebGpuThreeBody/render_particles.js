@@ -13,14 +13,13 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
     label: 'Cell shader',
     code: `
         struct VertexInput {
-
           @builtin(vertex_index) vdx: u32,
           @builtin(instance_index) idx: u32,
         };
 
         struct VertexOutput {
           @builtin(position) pos: vec4f,
-          @location(0) vert_pos: vec2f, // Not used yet
+          @location(0) uv_pos: vec2f, // Not used yet
         };
         
         struct FragInput {
@@ -32,15 +31,17 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
         @group(0) @binding(1) var<storage> renderBufferIn: array<vec4u>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
-          var pos = array<vec2f, 3>(
-            vec2(  -1.0, -1.0),
+          var pos = array<vec2f, 6>(
+            vec2(-1.0, -1.0),
             vec2(1.0, -1.0),
-            vec2( 1.0, 1.0)
+            vec2(1.0, 1.0),
+            vec2(-1.0, -1.0),
+            vec2(1.0,  1.0),
+            vec2(-1.0,  1.0),
           );
           var output: VertexOutput;
-
-          output.pos = vec4f(pos[input.vdx], 0, 1);
-          output.vert_pos = pos[input.idx]*0.1;
+          output.pos = vec4f(pos[input.vdx%6]*0.1, 0, 1);
+          output.uv_pos = pos[input.vdx%6];
           return output;
         }
        @fragment
@@ -131,7 +132,7 @@ function draw_particles(encoder, step) {
   pass.setPipeline(massRenderPipeline);
   pass.setBindGroup(0, render_binding); // Updated!
 
-  pass.draw(3);
+  pass.draw(6);
   // End the render pass and submit the command buffer
   pass.end();
 }
