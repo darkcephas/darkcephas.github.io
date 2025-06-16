@@ -7,10 +7,8 @@ var render_binding;
 
 function setup_render_particles(uniformBuffer, cellStateStorage) {
 
-
-
-  const massRenderShaderModule = device.createShaderModule({
-    label: 'Cell shader',
+  const renderShaderModule = device.createShaderModule({
+    label: 'RenderShader',
     code: `
         struct VertexInput {
           @builtin(vertex_index) vdx: u32,
@@ -23,15 +21,22 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
         };
         
         struct FragInput {
-          @location(0) vert_pos: vec2f,
+          @location(0) uv_pos: vec2f,
         };
 
+        struct Particle {
+           posi: vec2i,
+           id: vec2u,
+           posf: vec2f,
+           vel: vec2f,
+        };
 
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
-        @group(0) @binding(1) var<storage> renderBufferIn: array<vec4u>;
+        @group(0) @binding(1) var<storage> cellBuffer: array<Particle>;
         @vertex
         fn vertexMain(input: VertexInput) -> VertexOutput {
-          var pos = array<vec2f, 6>(
+           const kVertsPerQuad = 6;
+          var kTriDef = array<vec2f, kVertsPerQuad>(
             vec2(-1.0, -1.0),
             vec2(1.0, -1.0),
             vec2(1.0, 1.0),
@@ -40,14 +45,15 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
             vec2(-1.0,  1.0),
           );
           var output: VertexOutput;
-          output.pos = vec4f(pos[input.vdx%6]*0.1, 0, 1);
-          output.uv_pos = pos[input.vdx%6];
+          var pos =  kTriDef[input.vdx % kVertsPerQuad] * 0.01 + cellBuffer[input.vdx/ kVertsPerQuad].posf;
+          output.pos = vec4f(pos, 0, 1);
+          output.uv_pos = kTriDef[input.vdx % kVertsPerQuad];
           return output;
         }
        @fragment
         fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-          return vec4f(1, 0.0, 0.3 ,1.0);
-
+          let sphereAlpha = (1.0-length(input.uv_pos));
+          return vec4f(sphereAlpha, sphereAlpha, sphereAlpha ,1.0);
         }
       `
   });
@@ -73,18 +79,16 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
     bindGroupLayouts: [bindGroupLayout],
   });
 
-
-
   massRenderPipeline = device.createRenderPipeline({
     label: "Cell pipeline",
     layout: pipelineLayout, // Updated!
     vertex: {
-      module: massRenderShaderModule,
+      module: renderShaderModule,
       entryPoint: "vertexMain",
       buffers: []
     },
     fragment: {
-      module: massRenderShaderModule,
+      module: renderShaderModule,
       entryPoint: "fragmentMain",
       targets: [{
         format: canvasFormat,
@@ -132,7 +136,7 @@ function draw_particles(encoder, step) {
   pass.setPipeline(massRenderPipeline);
   pass.setBindGroup(0, render_binding); // Updated!
 
-  pass.draw(6);
+  pass.draw(NUM_PARTICLES_PER_MICRO* NUM_MICRO_SIMS*2);
   // End the render pass and submit the command buffer
   pass.end();
 }

@@ -1,7 +1,8 @@
 var device;
 var canvasformat;
 var context;
-const NUM_PARTICLES_MAX = 256;
+const NUM_MICRO_SIMS = 256;
+const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 var canvas_width;
 var canvas_height;
 var bindGroupLayout;
@@ -12,6 +13,11 @@ var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
 
+function UpdateUniforms() {
+  // Create a uniform buffer that describes the grid.
+  const uniformArray = new Float32Array([canvas_width, canvas_height]);
+  device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+}
 window.onload = async function () {
 
   window.addEventListener('resize', resizeCanvas, false);
@@ -51,47 +57,46 @@ window.onload = async function () {
     format: canvasFormat,
   });
 
+  const numElementsCell = 8;
+  const cellSizeBytes = numElementsCell * 4;
+  const cellStateArray = new Float32Array(NUM_PARTICLES_PER_MICRO * NUM_MICRO_SIMS * cellSizeBytes);
+  var as_int = new Int32Array(cellStateArray.buffer);
+  var cellStateStorage =
+    device.createBuffer({
+      label: "Cell State A",
+      size: cellStateArray.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
+  for (let i = 0; i < cellStateArray.length; i += numElementsCell * NUM_PARTICLES_PER_MICRO) {
+    for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
+      let q = i + j * numElementsCell;
+      cellStateArray[q + 0] = Math.random() - 0.5;
+      cellStateArray[q + 1] = Math.random() - 0.5;
+      cellStateArray[q + 2] = Math.random() - 0.5;
+      cellStateArray[q + 3] = Math.random() - 0.5;
+      cellStateArray[q + 4] = Math.random() - 0.5;
+      cellStateArray[q + 5] = Math.random() - 0.5;
+      cellStateArray[q + 6] = Math.random() - 0.5;
+      cellStateArray[q + 7] = Math.random() - 0.5;
 
-    // Create an array representing the active state of each cell.
-    const cellStateArray = new Float32Array(NUM_PARTICLES_MAX * 6);
-    var as_int = new Int32Array(cellStateArray.buffer);
-    // Create two storage buffers to hold the cell state.
-    var cellStateStorage =
-      device.createBuffer({
-        label: "Cell State A",
-        size: cellStateArray.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-    // Mark every third cell of the first grid as active.
-  
-    
-  // Create a bind group to pass the grid uniforms into the pipeline
-
-    for (let i = 0; i < cellStateArray.length; i += 6) {
-      cellStateArray[i] = Math.random() - 0.5;
-      cellStateArray[i + 1] = (i / 6) / (NUM_PARTICLES_MAX) - 0.5;
-  
-      cellStateArray[i + 2] = cellStateArray[i + 1] * 30 + Math.random() - 0.5;
-      cellStateArray[i + 3] = - cellStateArray[i] * 30 + Math.random() - 0.5;
-  
-      as_int[i] = cellStateArray[i] * (256 * 256 * 256 * 64);
-      as_int[i + 1] = cellStateArray[i + 1] * (256 * 256 * 256 * 64);
+      as_int[q + 0] = 0;
+      as_int[q + 1] = 0;
+      as_int[q + 2] = 0;
+      as_int[q + 3] = 0;
     }
-    device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);
+  }
+  device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);
 
-    
-  // Create a uniform buffer that describes the grid.
-  const uniformArray = new Float32Array([canvas_width, canvas_height]);
+
   uniformBuffer = device.createBuffer({
     label: "Grid Uniforms",
-    size: uniformArray.byteLength,
+    size: 8,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+  UpdateUniforms();
 
 
-    
   setup_compute_particles(uniformBuffer, cellStateStorage);
   setup_render_particles(uniformBuffer, cellStateStorage);
 

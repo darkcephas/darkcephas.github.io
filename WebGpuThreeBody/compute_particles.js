@@ -14,18 +14,24 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
     code: `
 
         struct Particle {
-           pos: vec2i,
-           vel: vec2f,
+           posi: vec2i,
            id: vec2u,
+           posf: vec2f,
+           vel: vec2f,
         };
         
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
-        @group(0) @binding(1) var<storage> cellStateOut: array<Particle>;
+        @group(0) @binding(1) var<storage, read_write> cellStateOut: array<Particle>;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
-        fn computeMain(  @builtin(global_invocation_id) global_idx:vec3u,
-        @builtin(num_workgroups) num_work:vec3u) {
-
+        fn computeMain(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u) {
+            const wg_size = ${WORKGROUP_SIZE};
+            let idx = local_idx + (wg_size * wg_id.x);
+            let part_start = idx * 3; // every 3 bodies
+            for(var i = 0u; i < 3u; i++){
+              cellStateOut[part_start+i].posf = vec2f(0.0001f,0.0001f) +  cellStateOut[i+part_start].posf;
+            }
         }
       `
   });
@@ -84,7 +90,7 @@ function update_compute_particles(encoder, step) {
   const computePass = encoder.beginComputePass();
   computePass.setPipeline(compute_pipe);
   computePass.setBindGroup(0, compute_binding);
-  const workgroupCount = Math.ceil((NUM_PARTICLES_MAX) / WORKGROUP_SIZE);
+  const workgroupCount = Math.ceil(NUM_MICRO_SIMS / WORKGROUP_SIZE);
   computePass.dispatchWorkgroups(workgroupCount);
   computePass.end();
 
