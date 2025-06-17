@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256;
+const NUM_MICRO_SIMS = 1;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 var canvas_width;
 var canvas_height;
@@ -58,8 +58,7 @@ window.onload = async function () {
   });
 
   const numElementsCell = 8;
-  const cellSizeBytes = numElementsCell * 4;
-  const cellStateArray = new Float32Array(NUM_PARTICLES_PER_MICRO * NUM_MICRO_SIMS * cellSizeBytes);
+  const cellStateArray = new Float32Array(NUM_PARTICLES_PER_MICRO * NUM_MICRO_SIMS * numElementsCell);
   var as_int = new Int32Array(cellStateArray.buffer);
   var cellStateStorage =
     device.createBuffer({

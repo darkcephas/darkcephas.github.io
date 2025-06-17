@@ -34,7 +34,7 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
         @group(0) @binding(1) var<storage> cellBuffer: array<Particle>;
         @vertex
-        fn vertexMain(input: VertexInput) -> VertexOutput {
+        fn mainvs(input: VertexInput) -> VertexOutput {
            const kVertsPerQuad = 6;
           var kTriDef = array<vec2f, kVertsPerQuad>(
             vec2(-1.0, -1.0),
@@ -51,7 +51,7 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
           return output;
         }
        @fragment
-        fn fragmentMain(input: FragInput) -> @location(0) vec4f {
+        fn mainfs(input: FragInput) -> @location(0) vec4f {
           let sphereAlpha = (1.0-length(input.uv_pos));
           return vec4f(sphereAlpha, sphereAlpha, sphereAlpha ,1.0);
         }
@@ -59,17 +59,16 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
   });
 
 
-  // Create the bind group layout and pipeline layout.
   const bindGroupLayout = device.createBindGroupLayout({
-    label: "Cell Bind Group Layout",
+    label: "Render",
     entries: [{
       binding: 0,
       visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
-      buffer: {} // Grid uniform buffer
+      buffer: {} // uniform
     }, {
       binding: 1,
       visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
-      buffer: { type: "read-only-storage" } // Cell state input buffer
+      buffer: { type: "read-only-storage" } // Sim buffer
     }]
   });
 
@@ -81,15 +80,15 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
 
   massRenderPipeline = device.createRenderPipeline({
     label: "Cell pipeline",
-    layout: pipelineLayout, // Updated!
+    layout: pipelineLayout,
     vertex: {
       module: renderShaderModule,
-      entryPoint: "vertexMain",
+      entryPoint: "mainvs",
       buffers: []
     },
     fragment: {
       module: renderShaderModule,
-      entryPoint: "fragmentMain",
+      entryPoint: "mainfs",
       targets: [{
         format: canvasFormat,
         blend: {
@@ -110,12 +109,12 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
 
   render_binding = device.createBindGroup({
     label: "Compute renderer bind group A",
-    layout: bindGroupLayout, // Updated Line
+    layout: bindGroupLayout,
     entries: [{
       binding: 0,
       resource: { buffer: uniformBuffer }
     }, {
-      binding: 1, // New Entry
+      binding: 1,
       resource: { buffer: cellStateStorage },
     }],
   });
@@ -127,18 +126,16 @@ function draw_particles(encoder, step) {
     colorAttachments: [{
       view: context.getCurrentTexture().createView(),
       loadOp: "clear",
-      clearValue: { r: 0, g: 0.0, b: 0.2, a: 1.0 },
+      clearValue: { r: 0, g: 0.0, b: 0.01, a: 1.0 },
       storeOp: "store",
     }]
   });
 
-  // Draw the grid.
   pass.setPipeline(massRenderPipeline);
-  pass.setBindGroup(0, render_binding); // Updated!
-
-  pass.draw(NUM_PARTICLES_PER_MICRO* NUM_MICRO_SIMS*2);
-  // End the render pass and submit the command buffer
-  pass.end();
+  pass.setBindGroup(0, render_binding);
+ // pass.draw(NUM_PARTICLES_PER_MICRO* NUM_MICRO_SIMS*2);
+  pass.draw(NUM_MICRO_SIMS* NUM_PARTICLES_PER_MICRO*2*3)
+  pass.end(); // Will be submitted by command encoder
 }
 
 
