@@ -25,37 +25,52 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
             // Three bodies at the same time.
-            const delta_t = 0.001;
+            const delta_t = 0.00002;
             const wg_size = ${WORKGROUP_SIZE};
             let idx = local_idx + (wg_size * wg_id.x);
             let part_start = idx * 3; // every 3 bodies
-            var force_a : array<vec2f, 3>;
+            var pos : array<vec2f, 3>;
+            var vel : array<vec2f, 3>;
             for(var i = 0u; i < 3u; i++){
-              for(var j = 0u; j < 3u; j++){
-                if(i != j){
-                  let diff = cellStateOut[part_start + i].posf -   cellStateOut[part_start + j].posf;
-                  force_a[i] += - normalize(diff)/dot(diff,diff);
+                pos[i] = cellStateOut[part_start + i].posf;
+                vel[i] = cellStateOut[part_start + i].vel;
+            }
+
+            for(var b =0u;b <100;b++){
+              var force_a : array<vec2f, 3>;
+              for(var i = 0u; i < 3u; i++){
+                for(var j = 0u; j < 3u; j++){
+                  if(i != j){
+                    let diff = pos[i] - pos[j];
+                    force_a[i] += - normalize(diff)/dot(diff,diff);
+                  }
                 }
+              }
+
+              for(var i = 0u; i < 3u; i++){
+                pos[i] = pos[i] + vel[i] * delta_t + delta_t*delta_t*0.5* force_a[i];
+              }
+
+              var force_b : array<vec2f, 3>;
+              for(var i = 0u; i < 3u; i++){
+                for(var j = 0u; j < 3u; j++){
+                  if(i != j){
+                    let diff = pos[i] - pos[j];
+                    force_b[i] += - normalize(diff)/dot(diff,diff);
+                  }
+                }
+              }
+
+              for(var i = 0u; i < 3u; i++){
+                vel[i] = vel[i] +  delta_t * 0.5 * (force_a[i]+ force_b[i]);
               }
             }
 
             for(var i = 0u; i < 3u; i++){
-              cellStateOut[part_start + i].posf = cellStateOut[part_start + i].posf + cellStateOut[i+part_start].vel * delta_t + delta_t*delta_t*0.5* force_a[i];
+                cellStateOut[part_start + i].posf = pos[i];
+                cellStateOut[part_start + i].vel = vel[i];
             }
 
-          var force_b : array<vec2f, 3>;
-           for(var i = 0u; i < 3u; i++){
-              for(var j = 0u; j < 3u; j++){
-                if(i != j){
-                  let diff = cellStateOut[part_start + i].posf - cellStateOut[part_start + j].posf;
-                  force_b[i] += - normalize(diff)/dot(diff,diff);
-                }
-              }
-            }
-
-            for(var i = 0u; i < 3u; i++){
-              cellStateOut[part_start + i].vel = cellStateOut[part_start + i].vel +  delta_t*0.5* (force_a[i]+ force_b[i]);
-            }
         }
       `
   });

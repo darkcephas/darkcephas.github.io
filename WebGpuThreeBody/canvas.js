@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 1;
+const NUM_MICRO_SIMS = 256*256*8;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 var canvas_width;
 var canvas_height;
@@ -25,6 +25,9 @@ window.onload = async function () {
   function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    canvas_width = canvas.width;
+    canvas_height = canvas.height;
+ 
 
     /**
      * Your drawings need to be inside this function otherwise they will be reset when 
@@ -67,22 +70,41 @@ window.onload = async function () {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
+  var planet_pos_x = [];
+  var planet_pos_y = [];
+  var planet_vel_x = [];
+  var planet_vel_y = [];
+  var sum_vel_x = 0.0;
+  var sum_vel_y = 0.0;
+  for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
+    planet_pos_x.push( Math.random() - 0.5);
+    planet_pos_y.push( Math.random() - 0.5);
+
+    var curr_vel_x =  (Math.random() - 0.5)*3.0;
+    var curr_vel_y =  (Math.random() - 0.5)*3.0;
+
+
+    planet_vel_x.push( j==NUM_PARTICLES_PER_MICRO-1? -sum_vel_x: curr_vel_x);
+    planet_vel_y.push( j==NUM_PARTICLES_PER_MICRO-1? -sum_vel_y: curr_vel_y);
+
+    sum_vel_x += curr_vel_x;
+    sum_vel_y += curr_vel_y;
+  }
+
   for (let i = 0; i < cellStateArray.length; i += numElementsCell * NUM_PARTICLES_PER_MICRO) {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
-      cellStateArray[q + 0] = Math.random() - 0.5;
-      cellStateArray[q + 1] = Math.random() - 0.5;
-      cellStateArray[q + 2] = Math.random() - 0.5;
-      cellStateArray[q + 3] = Math.random() - 0.5;
-      cellStateArray[q + 4] = Math.random() - 0.5;
-      cellStateArray[q + 5] = Math.random() - 0.5;
-      cellStateArray[q + 6] = Math.random() - 0.5;
-      cellStateArray[q + 7] = Math.random() - 0.5;
 
       as_int[q + 0] = 0;
       as_int[q + 1] = 0;
       as_int[q + 2] = 0;
       as_int[q + 3] = 0;
+
+      cellStateArray[q + 4] = planet_pos_y[j]+(Math.random() - 0.5)*0.00001;
+      cellStateArray[q + 5] = planet_pos_y[j]+(Math.random() - 0.5)*0.00001;
+      cellStateArray[q + 6] = planet_vel_x[j];
+      cellStateArray[q + 7] = planet_vel_y[j];
+
     }
   }
   device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);
@@ -102,7 +124,7 @@ window.onload = async function () {
   let step = 0; // Track how many simulation steps have been run        
   function updateGrid() {
     step++; // Increment the step count
-
+    UpdateUniforms();
     // Start a render pass 
     const encoder = device.createCommandEncoder();
     update_compute_particles(encoder, step);

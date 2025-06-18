@@ -17,11 +17,13 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
 
         struct VertexOutput {
           @builtin(position) pos: vec4f,
-          @location(0) uv_pos: vec2f, // Not used yet
+          @location(0) uv_pos: vec2f,
+           @location(1) col: vec4f,
         };
         
         struct FragInput {
           @location(0) uv_pos: vec2f,
+          @location(1) col: vec4f,
         };
 
         struct Particle {
@@ -45,15 +47,23 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
             vec2(-1.0,  1.0),
           );
           var output: VertexOutput;
-          var pos =  kTriDef[input.vdx % kVertsPerQuad] * 0.01 + cellBuffer[input.vdx/ kVertsPerQuad].posf;
-          output.pos = vec4f(pos, 0, 1);
+          var pos =  kTriDef[input.vdx % kVertsPerQuad] * 0.007 + cellBuffer[input.vdx/ kVertsPerQuad].posf;
+          var ratio = canvas_size.x/canvas_size.y;
+          output.pos = vec4f(pos.xy * vec2f(1.0f/ratio, 1.0f), 0, 1);
+          var kColChange = array<vec4f, 3>(
+            vec4f(1.0, 0.,0.,1.),
+            vec4f(.0, 1.,0.,1.),
+            vec4f(0.0, 0.,1.,1.),
+          );
+          output.col =  kColChange[(input.vdx/ kVertsPerQuad) % 3];
           output.uv_pos = kTriDef[input.vdx % kVertsPerQuad];
           return output;
         }
        @fragment
         fn mainfs(input: FragInput) -> @location(0) vec4f {
-          let sphereAlpha = (1.0-length(input.uv_pos));
-          return vec4f(sphereAlpha, sphereAlpha, sphereAlpha ,1.0);
+          let sphereAlpha = clamp(1.0-length(input.uv_pos),0.0,1.0);
+          let colOut = sphereAlpha * input.col*0.05*sphereAlpha;
+          return vec4f(colOut.rgb ,1.0);
         }
       `
   });
