@@ -51,9 +51,9 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
           var ratio = canvas_size.x/canvas_size.y;
           output.pos = vec4f(pos.xy * vec2f(1.0f/ratio, 1.0f), 0, 1);
           var kColChange = array<vec4f, 3>(
-            vec4f(1.0, 0.,0.,1.),
-            vec4f(.0, 1.,0.,1.),
-            vec4f(0.0, 0.,1.,1.),
+            vec4f(1.0, 0.05,0.05,1.),
+            vec4f(.05, 1.,0.05,1.),
+            vec4f(0.05, 0.05,1.,1.),
           );
           output.col =  kColChange[(input.vdx/ kVertsPerQuad) % 3];
           output.uv_pos = kTriDef[input.vdx % kVertsPerQuad];
@@ -62,7 +62,7 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
        @fragment
         fn mainfs(input: FragInput) -> @location(0) vec4f {
           let sphereAlpha = clamp(1.0-length(input.uv_pos),0.0,1.0);
-          let colOut = sphereAlpha * input.col*0.05*sphereAlpha;
+          let colOut = sphereAlpha * input.col*0.08*sphereAlpha;
           return vec4f(colOut.rgb ,1.0);
         }
       `

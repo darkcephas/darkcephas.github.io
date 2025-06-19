@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256*256*8;
+const NUM_MICRO_SIMS = 256*256*4;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 var canvas_width;
 var canvas_height;
@@ -77,8 +77,8 @@ window.onload = async function () {
   var sum_vel_x = 0.0;
   var sum_vel_y = 0.0;
   for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
-    planet_pos_x.push( Math.random() - 0.5);
-    planet_pos_y.push( Math.random() - 0.5);
+    planet_pos_x.push( (Math.random() - 0.5)*0.7);
+    planet_pos_y.push( (Math.random() - 0.5)*0.7);
 
     var curr_vel_x =  (Math.random() - 0.5)*3.0;
     var curr_vel_y =  (Math.random() - 0.5)*3.0;
@@ -100,8 +100,8 @@ window.onload = async function () {
       as_int[q + 2] = 0;
       as_int[q + 3] = 0;
 
-      cellStateArray[q + 4] = planet_pos_y[j]+(Math.random() - 0.5)*0.00001;
-      cellStateArray[q + 5] = planet_pos_y[j]+(Math.random() - 0.5)*0.00001;
+      cellStateArray[q + 4] = planet_pos_x[j]+(Math.random() - 0.5)*0.0002;
+      cellStateArray[q + 5] = planet_pos_y[j]+(Math.random() - 0.5)*0.0002;
       cellStateArray[q + 6] = planet_vel_x[j];
       cellStateArray[q + 7] = planet_vel_y[j];
 

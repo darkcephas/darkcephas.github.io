@@ -25,7 +25,7 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
             // Three bodies at the same time.
-            const delta_t = 0.00002;
+            
             const wg_size = ${WORKGROUP_SIZE};
             let idx = local_idx + (wg_size * wg_id.x);
             let part_start = idx * 3; // every 3 bodies
@@ -35,8 +35,13 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
                 pos[i] = cellStateOut[part_start + i].posf;
                 vel[i] = cellStateOut[part_start + i].vel;
             }
-
-            for(var b =0u;b <100;b++){
+            var min_dist =  min(
+                            min(length(pos[0]-pos[1]), length(pos[1]-pos[2]))
+                            , length(pos[2]-pos[0]));
+            
+            var num_iter = clamp(u32(1.0/min_dist), 10u, 1000000u);
+            var delta_t = 0.001/f32(num_iter);
+            for(var b =0u;b <num_iter;b++){
               var force_a : array<vec2f, 3>;
               for(var i = 0u; i < 3u; i++){
                 for(var j = 0u; j < 3u; j++){
