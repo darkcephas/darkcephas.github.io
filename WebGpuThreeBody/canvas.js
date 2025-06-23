@@ -102,9 +102,8 @@ window.onload = async function () {
 
       as_int[q + 0] = Math.floor(curr_pos_x);
       as_int[q + 1] = Math.floor(curr_pos_y);
-      as_int[q + 2] =0;
-      as_int[q + 3] = 0;
-
+      cellStateArray[q + 4] = 0.0;
+      cellStateArray[q + 5] = 0.0;
       cellStateArray[q + 4] =  curr_pos_x - Math.floor(curr_pos_x);;
       cellStateArray[q + 5] = curr_pos_y- Math.floor(curr_pos_y);
       cellStateArray[q + 6] = planet_vel_x[j];

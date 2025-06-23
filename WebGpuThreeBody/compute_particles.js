@@ -13,7 +13,7 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
     code: `
         struct Particle {
            posi: vec2i,
-           id: vec2u,
+           id: vec2f,
            posf: vec2f,
            vel: vec2f,
         };
