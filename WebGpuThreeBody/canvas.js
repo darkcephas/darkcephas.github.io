@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256*256*4;
+const NUM_MICRO_SIMS = 256*256*8;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 var canvas_width;
 var canvas_height;
@@ -12,6 +12,7 @@ var massAssignBindGroups;
 var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
+const INT_SCALE_CANVAS = 256;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
@@ -77,12 +78,11 @@ window.onload = async function () {
   var sum_vel_x = 0.0;
   var sum_vel_y = 0.0;
   for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
-    planet_pos_x.push( (Math.random() - 0.5)*0.7);
-    planet_pos_y.push( (Math.random() - 0.5)*0.7);
+    planet_pos_x.push( (Math.random() - 0.5)*0.5);
+    planet_pos_y.push( (Math.random() - 0.5)*0.5);
 
     var curr_vel_x =  (Math.random() - 0.5)*3.0;
     var curr_vel_y =  (Math.random() - 0.5)*3.0;
-
 
     planet_vel_x.push( j==NUM_PARTICLES_PER_MICRO-1? -sum_vel_x: curr_vel_x);
     planet_vel_y.push( j==NUM_PARTICLES_PER_MICRO-1? -sum_vel_y: curr_vel_y);
@@ -95,16 +95,20 @@ window.onload = async function () {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      as_int[q + 0] = 0;
-      as_int[q + 1] = 0;
-      as_int[q + 2] = 0;
+      var curr_pos_x = planet_pos_x[j]+(Math.random() - 0.5)*0.0005;
+      var curr_pos_y = planet_pos_y[j]+(Math.random() - 0.5)*0.0005;
+      curr_pos_x = INT_SCALE_CANVAS * curr_pos_x;
+      curr_pos_y = INT_SCALE_CANVAS * curr_pos_y;
+
+      as_int[q + 0] = Math.floor(curr_pos_x);
+      as_int[q + 1] = Math.floor(curr_pos_y);
+      as_int[q + 2] =0;
       as_int[q + 3] = 0;
 
-      cellStateArray[q + 4] = planet_pos_x[j]+(Math.random() - 0.5)*0.0002;
-      cellStateArray[q + 5] = planet_pos_y[j]+(Math.random() - 0.5)*0.0002;
+      cellStateArray[q + 4] =  curr_pos_x - Math.floor(curr_pos_x);;
+      cellStateArray[q + 5] = curr_pos_y- Math.floor(curr_pos_y);
       cellStateArray[q + 6] = planet_vel_x[j];
       cellStateArray[q + 7] = planet_vel_y[j];
-
     }
   }
   device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);

@@ -9,7 +9,7 @@ var compute_binding;
 function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
 
   const sortShaderModule = device.createShaderModule({
-    label: "Particle index sort",
+    label: "ParticleAvec",
     code: `
         struct Particle {
            posi: vec2i,
@@ -27,19 +27,31 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
             // Three bodies at the same time.
             
             const wg_size = ${WORKGROUP_SIZE};
+            const int_scale_canvas = i32 (${INT_SCALE_CANVAS} );
+            const float_scale_canvas = f32(int_scale_canvas);
             let idx = local_idx + (wg_size * wg_id.x);
             let part_start = idx * 3; // every 3 bodies
+            var min_diff = 0x3fffffff;
+            var best_int_vec = cellStateOut[part_start + 0].posi;
+            for(var i = 0u; i < 3u; i++){
+               let diff_pos =  cellStateOut[part_start + i].posi - cellStateOut[(part_start + i)%3].posi;
+               let curr_diff = abs(diff_pos.x) + abs(diff_pos.y);
+               if(min_diff > curr_diff){
+                  min_diff = curr_diff;
+                  best_int_vec = cellStateOut[part_start + i].posi;
+               }
+            }
+
             var pos : array<vec2f, 3>;
             var vel : array<vec2f, 3>;
             for(var i = 0u; i < 3u; i++){
-                pos[i] = cellStateOut[part_start + i].posf;
+                pos[i] = cellStateOut[part_start + i].posf / float_scale_canvas +  vec2f(cellStateOut[part_start + i].posi - best_int_vec)/ float_scale_canvas;
                 vel[i] = cellStateOut[part_start + i].vel;
             }
-            var min_dist =  min(
-                            min(length(pos[0]-pos[1]), length(pos[1]-pos[2]))
+            var min_dist =  min( min(length(pos[0]-pos[1]), length(pos[1]-pos[2]))
                             , length(pos[2]-pos[0]));
             
-            var num_iter = clamp(u32(1.0/min_dist), 10u, 1000000u);
+            var num_iter = clamp(u32(1.0/min_dist), 10u, 10000u);
             var delta_t = 0.001/f32(num_iter);
             for(var b =0u;b <num_iter;b++){
               var force_a : array<vec2f, 3>;
@@ -72,7 +84,10 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
             }
 
             for(var i = 0u; i < 3u; i++){
-                cellStateOut[part_start + i].posf = pos[i];
+                var as_int_temp = vec2i(pos[i] * float_scale_canvas);
+                var as_float_temp = pos[i]* float_scale_canvas - vec2f(as_int_temp);
+                cellStateOut[part_start + i].posi = best_int_vec + as_int_temp;
+                cellStateOut[part_start + i].posf = as_float_temp;
                 cellStateOut[part_start + i].vel = vel[i];
             }
 
