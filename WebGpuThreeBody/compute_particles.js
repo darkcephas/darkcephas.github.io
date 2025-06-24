@@ -34,7 +34,7 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
             var min_diff = 0x3fffffff;
             var best_int_vec = cellStateOut[part_start + 0].posi;
             for(var i = 0u; i < 3u; i++){
-               let diff_pos =  cellStateOut[part_start + i].posi - cellStateOut[(part_start + i)%3].posi;
+               let diff_pos =  cellStateOut[part_start + i].posi - cellStateOut[(part_start + i+1)%3].posi;
                let curr_diff = abs(diff_pos.x) + abs(diff_pos.y);
                if(min_diff > curr_diff){
                   min_diff = curr_diff;
@@ -42,17 +42,21 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
                }
             }
 
+
+           
+
             var pos : array<vec2f, 3>;
             var vel : array<vec2f, 3>;
             for(var i = 0u; i < 3u; i++){
+                //cellStateOut[part_start + i].id = vec2f(f32(min_diff),f32(min_diff)/5.0);
                 pos[i] = cellStateOut[part_start + i].posf / float_scale_canvas +  vec2f(cellStateOut[part_start + i].posi - best_int_vec)/ float_scale_canvas;
                 vel[i] = cellStateOut[part_start + i].vel;
             }
             var min_dist =  min( min(length(pos[0]-pos[1]), length(pos[1]-pos[2]))
                             , length(pos[2]-pos[0]));
             
-            var num_iter = clamp(u32(1.0/min_dist), 10u, 10000u);
-            var delta_t = 0.001/f32(num_iter);
+            var num_iter = clamp(u32(1.0/min_dist), 10u, 100000u);
+            var delta_t = 0.0005/f32(num_iter);
             for(var b =0u;b <num_iter;b++){
               var force_a : array<vec2f, 3>;
               for(var i = 0u; i < 3u; i++){

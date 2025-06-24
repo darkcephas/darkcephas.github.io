@@ -12,7 +12,7 @@ var massAssignBindGroups;
 var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
-const INT_SCALE_CANVAS = 256;
+const INT_SCALE_CANVAS = 256*256*256;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.

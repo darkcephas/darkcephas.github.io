@@ -60,6 +60,8 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
             vec4f(0.05, 0.05,1.,1.),
           );
           output.col =  kColChange[(input.vdx/ kVertsPerQuad) % 3];
+          //output.col = vec4f(1.0, cellBuffer[input.vdx/ kVertsPerQuad].id, 1.0 );
+
           output.uv_pos = kTriDef[input.vdx % kVertsPerQuad];
           return output;
         }
