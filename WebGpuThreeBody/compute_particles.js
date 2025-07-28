@@ -52,11 +52,10 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
                 pos[i] = cellStateOut[part_start + i].posf / float_scale_canvas +  vec2f(cellStateOut[part_start + i].posi - best_int_vec)/ float_scale_canvas;
                 vel[i] = cellStateOut[part_start + i].vel;
             }
-            var min_dist =  min( min(length(pos[0]-pos[1]), length(pos[1]-pos[2]))
-                            , length(pos[2]-pos[0]));
+            var min_dist =  min( min(length(pos[0]-pos[1]), length(pos[1]-pos[2])) , length(pos[2]-pos[0]));
             
-            var num_iter = clamp(u32(1.0/min_dist), 10u, 100000u);
-            var delta_t = 0.0005/f32(num_iter);
+            var num_iter = clamp(u32(100.0/min_dist), 100u, 100u);
+            var delta_t = 0.00001/f32(num_iter);
             for(var b =0u;b <num_iter;b++){
               var force_a : array<vec2f, 3>;
               for(var i = 0u; i < 3u; i++){

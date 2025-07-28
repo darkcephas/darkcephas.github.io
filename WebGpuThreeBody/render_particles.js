@@ -51,8 +51,10 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
           const float_scale_canvas = f32(int_scale_canvas);
           var cellPos = vec2f(cellBuffer[input.vdx/ kVertsPerQuad].posi)/float_scale_canvas + cellBuffer[input.vdx/ kVertsPerQuad].posf/float_scale_canvas ;
 
-          var pos =  kTriDef[input.vdx % kVertsPerQuad] * 0.007 + cellPos;
+          var pos =  kTriDef[input.vdx % kVertsPerQuad] * 0.0003 + cellPos;
           var ratio = canvas_size.x/canvas_size.y;
+          // Zoom ... remove
+          pos = pos.xy * 30.0 + vec2f(1.2,1.3);
           output.pos = vec4f(pos.xy * vec2f(1.0f/ratio, 1.0f), 0, 1);
           var kColChange = array<vec4f, 3>(
             vec4f(1.0, 0.05,0.05,1.),
