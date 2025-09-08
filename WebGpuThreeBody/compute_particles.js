@@ -5,8 +5,9 @@ const COARSE_RANGE = 2;
 const DELTA_T = 0.0000003;
 var compute_pipe;
 var compute_binding;
+var bindGroupLayout;
 
-function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
+function setup_compute_particles(uniformBuffer) {
 
   const sortShaderModule = device.createShaderModule({
     label: "ParticleAvec",
@@ -20,6 +21,7 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
         
         @group(0) @binding(0) var<uniform> canvas_size: vec2f;
         @group(0) @binding(1) var<storage, read_write> cellStateOut: array<Particle>;
+        @group(0) @binding(2) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn main(  @builtin(local_invocation_index) local_idx:u32,
@@ -93,12 +95,14 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
                 cellStateOut[part_start + i].posf = as_float_temp;
                 cellStateOut[part_start + i].vel = vel[i];
             }
-
+            let white_color = vec4f(1, 1, 1, 1);
+   
+            textureStore(frame_buffer, vec2u(local_idx, wg_id.x) , white_color);
         }
       `
   });
 
-  const  bindGroupLayout = device.createBindGroupLayout({
+   bindGroupLayout = device.createBindGroupLayout({
       label: "Sim",
       entries: [{
         binding: 0,
@@ -108,6 +112,10 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" }
+      }, {
+        binding: 2,
+        visibility: GPUShaderStage.COMPUTE,
+        storageTexture: {  access:"write-only" , format:canvasformat }
       }]
     });
   
@@ -127,6 +135,14 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
   });
 
 
+
+}
+
+function update_compute_particles(computeStorageBuffer, encoder, step) {
+  const computePass = encoder.beginComputePass();
+  computePass.setPipeline(compute_pipe);
+
+  let res_view = context.getCurrentTexture().createView();
   compute_binding = device.createBindGroup({
     label: "Sim",
     layout: bindGroupLayout,
@@ -136,13 +152,10 @@ function setup_compute_particles(uniformBuffer, computeStorageBuffer) {
     }, {
       binding: 1, // New Entry
       resource: { buffer: computeStorageBuffer },
-    }],
+      
+    } ,
+     { binding: 2, resource: res_view },],
   });
-}
-
-function update_compute_particles(encoder, step) {
-  const computePass = encoder.beginComputePass();
-  computePass.setPipeline(compute_pipe);
   computePass.setBindGroup(0, compute_binding);
   const workgroupCount = Math.ceil(NUM_MICRO_SIMS / WORKGROUP_SIZE);
   computePass.dispatchWorkgroups(workgroupCount);

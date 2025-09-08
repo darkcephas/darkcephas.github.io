@@ -109,7 +109,7 @@ function setup_render_particles(uniformBuffer, cellStateStorage) {
       module: renderShaderModule,
       entryPoint: "mainfs",
       targets: [{
-        format: canvasFormat,
+        format: canvasformat,
         blend: {
           alpha: {
             dstFactor: "one",

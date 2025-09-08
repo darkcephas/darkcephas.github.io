@@ -14,6 +14,8 @@ var massGraphicsBindGroup;
 var forceIndexBindGroups;
 const INT_SCALE_CANVAS = 1;
 
+"use strict";
+
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
   const uniformArray = new Float32Array([canvas_width, canvas_height]);
@@ -53,12 +55,13 @@ window.onload = async function () {
   if (!adapter) {
     throw new Error("No appropriate GPUAdapter found.");
   }
-  device = await adapter.requestDevice();
+  device = await adapter.requestDevice(  {requiredFeatures:  ['bgra8unorm-storage']});
   context = canvas.getContext("webgpu");
-  canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+  canvasformat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
     device: device,
-    format: canvasFormat,
+    format: canvasformat,
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, // rw from shader
   });
 
   const numElementsCell = 8;
@@ -91,6 +94,7 @@ window.onload = async function () {
     sum_vel_y += curr_vel_y;
   }
 
+  if(false){
   planet_pos_x = [
     0.0004966000743443222,
     -0.07845296000726942,
@@ -116,13 +120,13 @@ window.onload = async function () {
       -1.189744864301555,
       0.707023517961818
     ];
-
+  }
 
   for (let i = 0; i < cellStateArray.length; i += numElementsCell * NUM_PARTICLES_PER_MICRO) {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      var variation = 0.00002;
+      var variation = 0.002;
       var curr_pos_x = planet_pos_x[j] + (Math.random() - 0.5) * variation;
       var curr_pos_y = planet_pos_y[j] + (Math.random() - 0.5) * variation;
       curr_pos_x = INT_SCALE_CANVAS * curr_pos_x;
@@ -158,8 +162,8 @@ window.onload = async function () {
     UpdateUniforms();
     // Start a render pass 
     const encoder = device.createCommandEncoder();
-    update_compute_particles(encoder, step);
-    draw_particles(encoder, step);
+    update_compute_particles(cellStateStorage, encoder, step);
+    //draw_particles(encoder, step);
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
     window.requestAnimationFrame(updateGrid);
