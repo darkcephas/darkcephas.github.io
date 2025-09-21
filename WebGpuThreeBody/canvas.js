@@ -3,8 +3,10 @@ var canvasformat;
 var context;
 const NUM_MICRO_SIMS = 256 * 128;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
+const WORKGROUP_SIZE = 256;
 var canvas_width;
 var canvas_height;
+var canvas_width_stride;
 var bindGroupLayout;
 var uniformBuffer;
 var simulationBindGroups;
@@ -12,13 +14,15 @@ var massAssignBindGroups;
 var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
+var vizBufferStorage;
 const INT_SCALE_CANVAS = 1;
-
+var time_t = 0.0;
 "use strict";
+
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
-  const uniformArray = new Float32Array([canvas_width, canvas_height]);
+  const uniformArray = new Float32Array([canvas_width, canvas_height,canvas_width_stride, time_t]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 window.onload = async function () {
@@ -30,7 +34,17 @@ window.onload = async function () {
     canvas.height = window.innerHeight;
     canvas_width = canvas.width;
     canvas_height = canvas.height;
+    canvas_width_stride = WORKGROUP_SIZE * Math.ceil(canvas_width / WORKGROUP_SIZE);
 
+    const numVizBufferElementBytes = 4*4;
+    const numVizBufferTotal = numVizBufferElementBytes * canvas_width_stride * canvas_height;
+    vizBufferStorage =
+      device.createBuffer({
+        label: "Viz buffer",
+        size: numVizBufferTotal,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+  
 
     /**
      * Your drawings need to be inside this function otherwise they will be reset when 
@@ -39,7 +53,7 @@ window.onload = async function () {
     // drawStuff(); 
   }
 
-  resizeCanvas();
+
 
 
   if (!canvas) {
@@ -47,6 +61,8 @@ window.onload = async function () {
   }
   canvas_width = canvas.width;
   canvas_height = canvas.height;
+
+
   // Your WebGPU code will begin here!
   if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
@@ -64,6 +80,7 @@ window.onload = async function () {
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, // rw from shader
   });
 
+  resizeCanvas();
   const numElementsCell = 8;
   const cellStateArray = new Float32Array(NUM_PARTICLES_PER_MICRO * NUM_MICRO_SIMS * numElementsCell);
   var as_int = new Int32Array(cellStateArray.buffer);
@@ -73,6 +90,8 @@ window.onload = async function () {
       size: cellStateArray.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+
+
 
   var planet_pos_x = [];
   var planet_pos_y = [];
@@ -126,7 +145,7 @@ window.onload = async function () {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      var variation = 0.002;
+      var variation = 0.0005;
       var curr_pos_x = planet_pos_x[j] + (Math.random() - 0.5) * variation;
       var curr_pos_y = planet_pos_y[j] + (Math.random() - 0.5) * variation;
       curr_pos_x = INT_SCALE_CANVAS * curr_pos_x;
@@ -147,14 +166,14 @@ window.onload = async function () {
 
   uniformBuffer = device.createBuffer({
     label: "Grid Uniforms",
-    size: 8,
+    size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   UpdateUniforms();
 
 
-  setup_compute_particles(uniformBuffer, cellStateStorage);
-  setup_render_particles(uniformBuffer, cellStateStorage);
+
+  setup_compute_particles(uniformBuffer, cellStateStorage. vizBufferStorage);
 
   let step = 0; // Track how many simulation steps have been run        
   function updateGrid() {
@@ -162,11 +181,12 @@ window.onload = async function () {
     UpdateUniforms();
     // Start a render pass 
     const encoder = device.createCommandEncoder();
-    update_compute_particles(cellStateStorage, encoder, step);
-    //draw_particles(encoder, step);
+    update_compute_particles(cellStateStorage, vizBufferStorage, encoder, step);
+
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
     window.requestAnimationFrame(updateGrid);
+    time_t = time_t + 0.016;
   }
   window.requestAnimationFrame(updateGrid);
 }
