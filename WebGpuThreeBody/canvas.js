@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256 * 128;
+const NUM_MICRO_SIMS = 256 * 256;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 var canvas_width;
@@ -15,7 +15,6 @@ var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
 var vizBufferStorage;
-const INT_SCALE_CANVAS = 1;
 var time_t = 0.0;
 "use strict";
 
@@ -148,15 +147,13 @@ window.onload = async function () {
       var variation = 0.0005;
       var curr_pos_x = planet_pos_x[j] + (Math.random() - 0.5) * variation;
       var curr_pos_y = planet_pos_y[j] + (Math.random() - 0.5) * variation;
-      curr_pos_x = INT_SCALE_CANVAS * curr_pos_x;
-      curr_pos_y = INT_SCALE_CANVAS * curr_pos_y;
 
-      as_int[q + 0] = Math.floor(curr_pos_x);
-      as_int[q + 1] = Math.floor(curr_pos_y);
+      as_int[q + 0] = 0;
+      as_int[q + 1] = 0;
       cellStateArray[q + 4] = 0.0;
       cellStateArray[q + 5] = 0.0;
-      cellStateArray[q + 4] = curr_pos_x - Math.floor(curr_pos_x);;
-      cellStateArray[q + 5] = curr_pos_y - Math.floor(curr_pos_y);
+      cellStateArray[q + 4] = curr_pos_x;
+      cellStateArray[q + 5] = curr_pos_y;
       cellStateArray[q + 6] = planet_vel_x[j];
       cellStateArray[q + 7] = planet_vel_y[j];
     }

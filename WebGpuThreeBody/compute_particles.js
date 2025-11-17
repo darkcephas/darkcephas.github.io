@@ -36,34 +36,36 @@ function setup_compute_particles(uniformBuffer) {
             // Three bodies at the same time.
             
             const wg_size = ${WORKGROUP_SIZE};
-            const int_scale_canvas = i32 (${INT_SCALE_CANVAS} );
-            const float_scale_canvas = f32(int_scale_canvas);
             let width_stride = u32(canvas_size.z);
             let idx = local_idx + (wg_size * wg_id.x);
             let part_start = idx * 3; // every 3 bodies
-            var min_diff = 0x3fffffff;
-            var best_int_vec = cellStateOut[part_start + 0].posi;
-            for(var i = 0u; i < 3u; i++){
-               let diff_pos =  cellStateOut[part_start + i].posi - cellStateOut[(part_start + i+1)%3].posi;
-               let curr_diff = abs(diff_pos.x) + abs(diff_pos.y);
-               if(min_diff > curr_diff){
-                  min_diff = curr_diff;
-                  best_int_vec = cellStateOut[part_start + i].posi;
-               }
-            }
 
-            // HACK
-            best_int_vec = vec2i(0,0);
 
             var pos : array<vec2f, 3>;
             var vel : array<vec2f, 3>;
             for(var i = 0u; i < 3u; i++){
-                //cellStateOut[part_start + i].id = vec2f(f32(min_diff),f32(min_diff)/5.0);
-                pos[i] = cellStateOut[part_start + i].posf / float_scale_canvas +  vec2f(cellStateOut[part_start + i].posi - best_int_vec)/ float_scale_canvas;
+                pos[i] = cellStateOut[part_start + i].posf;
                 vel[i] = cellStateOut[part_start + i].vel;
             }
-            var min_dist =  min( min(length(pos[0]-pos[1]), length(pos[1]-pos[2])) , length(pos[2]-pos[0]));
+
+
+            var min_dist = 100000.0;
+            var min_dist_idx = 0u;
+
+            for(var i = 0u; i < 3u; i++){
+                  var dist = length(pos[i]-pos[(i+1u)%3u]);
+                  if(dist < min_dist){
+                     min_dist_idx = i;
+                     min_dist = dist;
+                  }
+            }
+
             
+            var offset_pos = pos[min_dist_idx];
+            for(var i = 0u; i < 3u; i++){
+               pos[i] = pos[i] - offset_pos;
+            }
+
             var num_iter =  1000u;
             var delta_t = 0.0002/f32(num_iter);
             for(var b =0u;b <num_iter;b++){
@@ -97,24 +99,36 @@ function setup_compute_particles(uniformBuffer) {
             }
 
             for(var i = 0u; i < 3u; i++){
-                var as_int_temp = vec2i(pos[i] * float_scale_canvas);
-                var as_float_temp = pos[i]* float_scale_canvas - vec2f(as_int_temp);
-                var pix_pos = (pos[i]* float_scale_canvas + vec2f(0.5,0.5)) * canvas_size.xy;
+               pos[i] = pos[i] + offset_pos;
+            }
 
-                cellStateOut[part_start + i].posi = best_int_vec + as_int_temp;
+            for(var i = 0u; i < 3u; i++){
+                var as_float_temp = pos[i];
+                var pix_pos = (pos[i] + vec2f(0.5,0.5)) * canvas_size.xy;
+
                 cellStateOut[part_start + i].posf = as_float_temp;
                 cellStateOut[part_start + i].vel = vel[i];
 
+                var pix_pos_int = vec2u(pix_pos);
+                var pix_pos_frac = fract(pix_pos);
+                
                 if( pix_pos.x > 0.0 && pix_pos.x < canvas_size.x
                    && pix_pos.y > 0.0 && pix_pos.y < canvas_size.y){
-                     atomicAdd(&vizBuff[u32(pix_pos.x) + u32(pix_pos.y)* width_stride].viz[i], 1);
-                }
+                    // bilinear filtering
+                    var kSubPixelMult = 16.0;
+                    var x0y0 = (1-pix_pos_frac.x)* (1-pix_pos_frac.y)*kSubPixelMult;
+                    var x1y0 = (pix_pos_frac.x)* (1-pix_pos_frac.y)*kSubPixelMult;
+                    var x0y1 = (1-pix_pos_frac.x)* (pix_pos_frac.y)*kSubPixelMult;
+                    var x1y1 = (pix_pos_frac.x)* (pix_pos_frac.y)*kSubPixelMult;
 
 
-        
-               
+                     atomicAdd(&vizBuff[pix_pos_int.x + pix_pos_int.y * width_stride].viz[i], u32(x0y0));
+                     atomicAdd(&vizBuff[pix_pos_int.x + 1 + pix_pos_int.y * width_stride].viz[i], u32(x1y0));
+                     atomicAdd(&vizBuff[pix_pos_int.x + (pix_pos_int.y +1) * width_stride].viz[i], u32(x0y1));
+                     atomicAdd(&vizBuff[pix_pos_int.x + 1 + (pix_pos_int.y+1) * width_stride].viz[i], u32(x1y1));
+
+                } 
             }
-
         }
       `
   });
@@ -140,8 +154,7 @@ function setup_compute_particles(uniformBuffer) {
         @builtin(	workgroup_id) wg_id:vec3u) {
             // Three bodies at the same time.
             const wg_size = ${WORKGROUP_SIZE};
-            const int_scale_canvas = i32 (${INT_SCALE_CANVAS} );
-            const float_scale_canvas = f32(int_scale_canvas);
+
             let width_stride = u32(canvas_size.z);
           
             let pix_pos = vec2u(local_idx + wg_id.x*wg_size, wg_id.y + (wg_id.z*256));
@@ -151,7 +164,7 @@ function setup_compute_particles(uniformBuffer) {
             }
             
             let sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
-            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1);
+            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/16.0;
    
             textureStore(frame_buffer, pix_pos , white_color);
         }
