@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256 * 256;
+const NUM_MICRO_SIMS = 256 * 256*4;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 var canvas_width;
@@ -144,7 +144,7 @@ window.onload = async function () {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      var variation = 0.0005;
+      var variation = 0.0001;
       var curr_pos_x = planet_pos_x[j] + (Math.random() - 0.5) * variation;
       var curr_pos_y = planet_pos_y[j] + (Math.random() - 0.5) * variation;
 

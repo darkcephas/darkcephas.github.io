@@ -13,7 +13,7 @@ function setup_compute_particles(uniformBuffer) {
     label: "ParticleAvec",
     code: `
         struct Particle {
-           posi: vec2i,
+           unused_data: vec2i,
            id: vec2f,
            posf: vec2f,
            vel: vec2f,
@@ -29,6 +29,20 @@ function setup_compute_particles(uniformBuffer) {
         @group(0) @binding(1) var<storage, read_write> cellStateOut: array<Particle>;
         @group(0) @binding(2) var<storage, read_write> vizBuff: array<VisStruct>;
         @group(0) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+
+
+        fn force(pos: array<vec2f,3> ) -> array<vec2f,3> {
+          var force_out : array<vec2f, 3>;
+          for(var i = 0u; i < 3u; i++){
+              for(var j = 0u; j < 3u; j++){
+                 if(i != j){
+                      let diff = pos[i] - pos[j];
+                      force_out[i] += - normalize(diff)/dot(diff,diff);
+                  }
+               }
+          }
+          return force_out;
+        }
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn main(  @builtin(local_invocation_index) local_idx:u32,
@@ -66,42 +80,53 @@ function setup_compute_particles(uniformBuffer) {
                pos[i] = pos[i] - offset_pos;
             }
 
-            var num_iter =  1000u;
-            var delta_t = 0.0002/f32(num_iter);
+            var num_iter = clamp( u32( 3.0/(min_dist)), 30u, 2000u);
+            var dt =  0.0004/f32(num_iter);
+            const num_stages = 4u;
+            const kCoeff = array(0.5, 0.5, 1.0);
+            const kWeights = array(1.0/ 6.0, 2.0/ 6.0, 2.0/ 6.0, 1.0/ 6.0);
             for(var b =0u;b <num_iter;b++){
-              var force_a : array<vec2f, 3>;
-              for(var i = 0u; i < 3u; i++){
-                for(var j = 0u; j < 3u; j++){
-                  if(i != j){
-                    let diff = pos[i] - pos[j];
-                    force_a[i] += - normalize(diff)/dot(diff,diff);
+
+              var xk = array<array<vec2f,3>,num_stages>();
+              var vk = array<array<vec2f,3>,num_stages>();
+              xk[0] = vel;
+              vk[0] = force(pos);
+
+              for(var stage = 1u; stage < num_stages; stage++){
+                  // Compute acceleration
+                  var temp_pos = array<vec2f,3>();
+                  for(var i = 0u; i < 3u; i++){
+                    temp_pos[i] = pos[i] + xk[stage - 1][i] * dt * kCoeff[stage - 1];
+                  }
+                  var a = force(temp_pos);
+
+                  // Compute xk and vk
+                  for(var i = 0u; i < 3u; i++){
+                    xk[stage][i] = vel[i] + vk[stage - 1][i] * dt * kCoeff[stage - 1]; 
+                  }
+                  vk[stage] = a;
+              }
+      
+                var dx : array<vec2f,3>;
+                var dv : array<vec2f,3>;
+                for(var stage = 0u; stage < num_stages; stage++){
+                   for(var i = 0u; i < 3u; i++){
+                    dx[i] += kWeights[stage] * xk[stage][i];
+                    dv[i] += kWeights[stage] * vk[stage][i];
                   }
                 }
-              }
 
-              for(var i = 0u; i < 3u; i++){
-                pos[i] = pos[i] + vel[i] * delta_t + delta_t*delta_t*0.5* force_a[i];
-              }
-
-              var force_b : array<vec2f, 3>;
-              for(var i = 0u; i < 3u; i++){
-                for(var j = 0u; j < 3u; j++){
-                  if(i != j){
-                    let diff = pos[i] - pos[j];
-                    force_b[i] += - normalize(diff)/dot(diff,diff);
-                  }
+                for(var i = 0u; i < 3u; i++){
+                  pos[i] = pos[i] + dt * dx[i];
+                  vel[i] = vel[i] + dt * dv[i];
                 }
-              }
-
-              for(var i = 0u; i < 3u; i++){
-                vel[i] = vel[i] +  delta_t * 0.5 * (force_a[i]+ force_b[i]);
-              }
             }
 
             for(var i = 0u; i < 3u; i++){
                pos[i] = pos[i] + offset_pos;
             }
 
+            // Anti aliased drawing of 3 particles from world to screen
             for(var i = 0u; i < 3u; i++){
                 var as_float_temp = pos[i];
                 var pix_pos = (pos[i] + vec2f(0.5,0.5)) * canvas_size.xy;
@@ -164,7 +189,7 @@ function setup_compute_particles(uniformBuffer) {
             }
             
             let sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
-            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/16.0;
+            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/64.0;
    
             textureStore(frame_buffer, pix_pos , white_color);
         }
