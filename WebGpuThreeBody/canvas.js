@@ -1,7 +1,7 @@
 var device;
 var canvasformat;
 var context;
-const NUM_MICRO_SIMS = 256 * 256*4;
+const NUM_MICRO_SIMS = 256 * 256*2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 var canvas_width;

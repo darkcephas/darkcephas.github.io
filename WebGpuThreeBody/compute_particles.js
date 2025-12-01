@@ -63,67 +63,69 @@ function setup_compute_particles(uniformBuffer) {
             }
 
 
-            var min_dist = 100000.0;
-            var min_dist_idx = 0u;
+            for(var q = 0u; q < 20u; q++){
+              var min_dist = 100000.0;
+              var min_dist_idx = 0u;
 
-            for(var i = 0u; i < 3u; i++){
-                  var dist = length(pos[i]-pos[(i+1u)%3u]);
-                  if(dist < min_dist){
-                     min_dist_idx = i;
-                     min_dist = dist;
-                  }
-            }
-
-            
-            var offset_pos = pos[min_dist_idx];
-            for(var i = 0u; i < 3u; i++){
-               pos[i] = pos[i] - offset_pos;
-            }
-
-            var num_iter = clamp( u32( 3.0/(min_dist)), 30u, 2000u);
-            var dt =  0.0004/f32(num_iter);
-            const num_stages = 4u;
-            const kCoeff = array(0.5, 0.5, 1.0);
-            const kWeights = array(1.0/ 6.0, 2.0/ 6.0, 2.0/ 6.0, 1.0/ 6.0);
-            for(var b =0u;b <num_iter;b++){
-
-              var xk = array<array<vec2f,3>,num_stages>();
-              var vk = array<array<vec2f,3>,num_stages>();
-              xk[0] = vel;
-              vk[0] = force(pos);
-
-              for(var stage = 1u; stage < num_stages; stage++){
-                  // Compute acceleration
-                  var temp_pos = array<vec2f,3>();
-                  for(var i = 0u; i < 3u; i++){
-                    temp_pos[i] = pos[i] + xk[stage - 1][i] * dt * kCoeff[stage - 1];
-                  }
-                  var a = force(temp_pos);
-
-                  // Compute xk and vk
-                  for(var i = 0u; i < 3u; i++){
-                    xk[stage][i] = vel[i] + vk[stage - 1][i] * dt * kCoeff[stage - 1]; 
-                  }
-                  vk[stage] = a;
+              for(var i = 0u; i < 3u; i++){
+                    var dist = length(pos[i]-pos[(i+1u)%3u]);
+                    if(dist < min_dist){
+                      min_dist_idx = i;
+                      min_dist = dist;
+                    }
               }
-      
-                var dx : array<vec2f,3>;
-                var dv : array<vec2f,3>;
-                for(var stage = 0u; stage < num_stages; stage++){
-                   for(var i = 0u; i < 3u; i++){
-                    dx[i] += kWeights[stage] * xk[stage][i];
-                    dv[i] += kWeights[stage] * vk[stage][i];
+
+              
+              var offset_pos = pos[min_dist_idx];
+              for(var i = 0u; i < 3u; i++){
+                pos[i] = pos[i] - offset_pos;
+              }
+
+              var num_iter = clamp( u32( 1.0/(min_dist)), 5u, 50u);
+              var dt =  0.00002/f32(num_iter);
+              const num_stages = 4u;
+              const kCoeff = array(0.5, 0.5, 1.0);
+              const kWeights = array(1.0/ 6.0, 2.0/ 6.0, 2.0/ 6.0, 1.0/ 6.0);
+              for(var b =0u;b <num_iter;b++){
+
+                var xk = array<array<vec2f,3>,num_stages>();
+                var vk = array<array<vec2f,3>,num_stages>();
+                xk[0] = vel;
+                vk[0] = force(pos);
+
+                for(var stage = 1u; stage < num_stages; stage++){
+                    // Compute acceleration
+                    var temp_pos = array<vec2f,3>();
+                    for(var i = 0u; i < 3u; i++){
+                      temp_pos[i] = pos[i] + xk[stage - 1][i] * dt * kCoeff[stage - 1];
+                    }
+                    var a = force(temp_pos);
+
+                    // Compute xk and vk
+                    for(var i = 0u; i < 3u; i++){
+                      xk[stage][i] = vel[i] + vk[stage - 1][i] * dt * kCoeff[stage - 1]; 
+                    }
+                    vk[stage] = a;
+                }
+        
+                  var dx : array<vec2f,3>;
+                  var dv : array<vec2f,3>;
+                  for(var stage = 0u; stage < num_stages; stage++){
+                    for(var i = 0u; i < 3u; i++){
+                      dx[i] += kWeights[stage] * xk[stage][i];
+                      dv[i] += kWeights[stage] * vk[stage][i];
+                    }
                   }
-                }
 
-                for(var i = 0u; i < 3u; i++){
-                  pos[i] = pos[i] + dt * dx[i];
-                  vel[i] = vel[i] + dt * dv[i];
-                }
-            }
+                  for(var i = 0u; i < 3u; i++){
+                    pos[i] = pos[i] + dt * dx[i];
+                    vel[i] = vel[i] + dt * dv[i];
+                  }
+              }
 
-            for(var i = 0u; i < 3u; i++){
-               pos[i] = pos[i] + offset_pos;
+              for(var i = 0u; i < 3u; i++){
+                pos[i] = pos[i] + offset_pos;
+              }
             }
 
             // Anti aliased drawing of 3 particles from world to screen
@@ -189,7 +191,7 @@ function setup_compute_particles(uniformBuffer) {
             }
             
             let sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
-            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/64.0;
+            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/16.0;
    
             textureStore(frame_buffer, pix_pos , white_color);
         }
