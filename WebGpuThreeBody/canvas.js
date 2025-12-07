@@ -113,7 +113,7 @@ window.onload = async function () {
     sum_vel_y += curr_vel_y;
   }
 
-  if(true){
+  if(false){
   planet_pos_x = [
     0.0004966000743443222,
     -0.07845296000726942,
