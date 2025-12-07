@@ -33,11 +33,12 @@ function setup_compute_particles(uniformBuffer) {
 
         fn force(pos: array<vec2f,3> ) -> array<vec2f,3> {
           var force_out : array<vec2f, 3>;
+          const force_mult = 30000.0;
           for(var i = 0u; i < 3u; i++){
               for(var j = 0u; j < 3u; j++){
                  if(i != j){
                       let diff = pos[i] - pos[j];
-                      force_out[i] += - normalize(diff)/dot(diff,diff);
+                      force_out[i] += - normalize(diff)/dot(diff,diff)*force_mult*force_mult;
                   }
                }
           }
@@ -50,6 +51,7 @@ function setup_compute_particles(uniformBuffer) {
             // Three bodies at the same time.
             
             const wg_size = ${WORKGROUP_SIZE};
+            const world_scale = f32(${WORLD_SCALE});
             let width_stride = u32(canvas_size.z);
             let idx = local_idx + (wg_size * wg_id.x);
             let part_start = idx * 3; // every 3 bodies
@@ -129,9 +131,10 @@ function setup_compute_particles(uniformBuffer) {
             }
 
             // Anti aliased drawing of 3 particles from world to screen
+            // We could actually do it stochastically!
             for(var i = 0u; i < 3u; i++){
                 var as_float_temp = pos[i];
-                var pix_pos = (pos[i] + vec2f(0.5,0.5)) * canvas_size.xy;
+                var pix_pos = (pos[i]/world_scale + vec2f(0.5,0.5)) * canvas_size.xy;
 
                 cellStateOut[part_start + i].posf = as_float_temp;
                 cellStateOut[part_start + i].vel = vel[i];

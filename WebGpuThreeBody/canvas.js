@@ -4,6 +4,7 @@ var context;
 const NUM_MICRO_SIMS = 256 * 256*2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
+const WORLD_SCALE = 1000.0;
 var canvas_width;
 var canvas_height;
 var canvas_width_stride;
@@ -144,9 +145,9 @@ window.onload = async function () {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      var variation = 0.0001;
-      var curr_pos_x = planet_pos_x[j] + (Math.random() - 0.5) * variation;
-      var curr_pos_y = planet_pos_y[j] + (Math.random() - 0.5) * variation;
+      var variation = 0.001;
+      var curr_pos_x = planet_pos_x[j]* WORLD_SCALE + (Math.random() - 0.5) * variation;
+      var curr_pos_y = planet_pos_y[j]* WORLD_SCALE + (Math.random() - 0.5) * variation;
 
       as_int[q + 0] = 0;
       as_int[q + 1] = 0;
@@ -154,8 +155,8 @@ window.onload = async function () {
       cellStateArray[q + 5] = 0.0;
       cellStateArray[q + 4] = curr_pos_x;
       cellStateArray[q + 5] = curr_pos_y;
-      cellStateArray[q + 6] = planet_vel_x[j];
-      cellStateArray[q + 7] = planet_vel_y[j];
+      cellStateArray[q + 6] = planet_vel_x[j]*WORLD_SCALE;
+      cellStateArray[q + 7] = planet_vel_y[j]*WORLD_SCALE;
     }
   }
   device.queue.writeBuffer(cellStateStorage, 0, cellStateArray);
