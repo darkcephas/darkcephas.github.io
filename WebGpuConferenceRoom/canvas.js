@@ -1,0 +1,286 @@
+var device;
+var canvasformat;
+var context;
+const NUM_MICRO_SIMS = 256 * 256 * 2;
+const NUM_PARTICLES_PER_MICRO = 3; // 3 body
+const WORKGROUP_SIZE = 256;
+const WORLD_SCALE = 1000.0;
+var canvas_width;
+var canvas_height;
+var canvas_width_stride;
+var bindGroupLayout;
+var uniformBuffer;
+var simulationBindGroups;
+var massAssignBindGroups;
+var starGraphicsBindGroup;
+var massGraphicsBindGroup;
+var forceIndexBindGroups;
+var vizBufferStorage;
+var time_t = 0.0;
+var depthTexture;
+"use strict";
+
+
+function UpdateUniforms() {
+  // Create a uniform buffer that describes the grid.
+  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_stride, time_t]);
+  device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+}
+window.onload = async function () {
+
+  window.addEventListener('resize', resizeCanvas, false);
+  const canvas = document.querySelector("canvas");
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    canvas_width = canvas.width;
+    canvas_height = canvas.height;
+    canvas_width_stride = WORKGROUP_SIZE * Math.ceil(canvas_width / WORKGROUP_SIZE);
+
+    const numVizBufferElementBytes = 4 * 4;
+    const numVizBufferTotal = numVizBufferElementBytes * canvas_width_stride * canvas_height;
+    vizBufferStorage =
+      device.createBuffer({
+        label: "Viz buffer",
+        size: numVizBufferTotal,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
+
+
+
+    depthTexture = device.createTexture({
+      size: { width: canvas_width, height: canvas_height },
+      dimension: '2d',
+      format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+
+
+    /**
+     * Your drawings need to be inside this function otherwise they will be reset when 
+     * you resize the browser window and the canvas goes will be cleared.
+     */
+    // drawStuff(); 
+  }
+
+
+
+
+  if (!canvas) {
+    throw new Error("No canvas.");
+  }
+  canvas_width = canvas.width;
+  canvas_height = canvas.height;
+
+
+  // Your WebGPU code will begin here!
+  if (!navigator.gpu) {
+    throw new Error("WebGPU not supported on this browser.");
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("No appropriate GPUAdapter found.");
+  }
+  device = await adapter.requestDevice({ requiredFeatures: ['bgra8unorm-storage'] });
+  context = canvas.getContext("webgpu");
+  canvasformat = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({
+    device: device,
+    format: canvasformat,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, // rw from shader
+  });
+
+  resizeCanvas();
+  const numTriangles = cr_data.length / (4 * 3);
+  const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
+  const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
+  var triStateStorage =
+    device.createBuffer({
+      label: "Triangle Buffer",
+      size: triStateArray.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+
+  //Math.random()
+
+  var triDataOutIdx = 0;
+  var triDataPutIdx = 0;
+  const scalingXYZ = 0.03;
+  while (triDataOutIdx < cr_data.length) {
+    // v0, v1, v2, col
+    for (var i = 0; i < 4; i++) {
+      const localScale = i==3 ? 1.0 : scalingXYZ;
+      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
+      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
+      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
+      triStateArray[triDataPutIdx++] = 0.0;
+    }
+  }
+
+  device.queue.writeBuffer(triStateStorage, 0, triStateArray);
+
+
+  uniformBuffer = device.createBuffer({
+    label: "Grid Uniforms",
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  UpdateUniforms();
+
+
+  const renderShaderModule = device.createShaderModule({
+    label: 'renderShaderModule',
+    code: `
+      struct VertexInput {
+        @builtin(vertex_index) instance: u32,
+      };
+
+      struct VertexOutput {
+        @builtin(position) pos: vec4f,
+        @location(0) prim_color: vec3f, // Not used yet
+      };
+      
+      struct FragInput {
+        @builtin(position) pos: vec4f,
+        @location(0) prim_color: vec3f,
+      };
+
+      struct Triangle{
+        pos0:vec3f, padd0:f32,
+        pos1:vec3f, padd1:f32,
+        pos2:vec3f, padd2:f32,
+        col:vec3f, cpadd:f32,
+      };
+
+      @group(0) @binding(0) var<uniform> canvas_size: vec4f;
+      @group(0) @binding(1) var<storage> renderBufferIn: array<Triangle>;
+      @vertex
+      fn vertexMain(input: VertexInput) -> VertexOutput {
+        var output: VertexOutput;
+        let which_triangle = input.instance/3u;
+        var pos = vec3f(0,0,0);
+        if(input.instance % 3 == 0){
+          pos = renderBufferIn[which_triangle].pos0;
+        }
+        else if(input.instance % 3 == 1){
+          pos = renderBufferIn[which_triangle].pos1;
+        }
+        else if(input.instance % 3 == 2){
+          pos = renderBufferIn[which_triangle].pos2;
+        }
+        output.prim_color = renderBufferIn[which_triangle].col;
+        //var test_array= array(vec3f(0,0,.1), vec3f(1,0,.1),vec3f(0,1,.1));
+        //pos = test_array[input.instance % 3];
+        let s_pos = pos;
+        let rot = canvas_size.w*0.2;
+        pos.z= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+        pos.x = s_pos.x * sin(rot) + s_pos.z * cos(rot);
+
+        pos.y -= 0.25;
+        pos.x *= canvas_size.y/canvas_size.x;
+        output.pos = vec4f(pos.xy, pos.z, pos.z);
+        return output;
+      }
+
+     @fragment
+      fn fragmentMain(input: FragInput) -> @location(0) vec4f {
+        return vec4f(input.prim_color, 1) ;
+      }
+    `
+  });
+
+
+  var bindGroupLayout = device.createBindGroupLayout({
+    label: "render bind group",
+    entries: [{
+      binding: 0,
+      visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+      buffer: {} // Grid uniform buffer
+    }, {
+      binding: 1,
+      visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+      buffer: { type: "read-only-storage" }
+    }]
+  });
+
+  const pipelineLayout = device.createPipelineLayout({
+    label: "Cell Pipeline Layout",
+    bindGroupLayouts: [bindGroupLayout],
+  });
+
+  var renderPipe = device.createRenderPipeline({
+    label: "render pipeline",
+    depthStencil: { depthCompare: "always", depthWriteEnabled: true, format: "depth24plus" },
+    layout: pipelineLayout, // Updated!
+    primative: { cullmode: "none" },
+    vertex: {
+      module: renderShaderModule,
+      entryPoint: "vertexMain",
+    },
+    fragment: {
+      module: renderShaderModule,
+      entryPoint: "fragmentMain",
+      targets: [{
+        format: canvasformat,
+      }]
+    }
+  });
+
+
+
+
+  var graphicsBindGroup =
+    device.createBindGroup({
+      label: "graphics bind",
+      layout: bindGroupLayout, // Updated Line
+      entries: [{
+        binding: 0,
+        resource: { buffer: uniformBuffer }
+      }, {
+        binding: 1,
+        resource: { buffer: triStateStorage }
+      }],
+    });
+
+
+
+
+  //setup_compute_particles(uniformBuffer, cellStateStorage. vizBufferStorage);
+
+  let step = 0; // Track how many simulation steps have been run        
+  function updateGrid() {
+    step++; // Increment the step count
+    UpdateUniforms();
+    // Start a render pass 
+    const encoder = device.createCommandEncoder();
+    // update_compute_particles(cellStateStorage, vizBufferStorage, encoder, step);
+
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        loadOp: "clear",
+        clearValue: { r: 0, g: 0.0, b: 0.1, a: 0.0 },
+        storeOp: "store",
+      }],
+      depthStencilAttachment: {
+        depthClearValue: 1.0,
+        depthLoadOp: "clear",
+        depthStoreOp: "discard",
+        view: depthTexture.createView()
+      },
+    });
+
+    pass.setPipeline(renderPipe);
+    pass.setBindGroup(0, graphicsBindGroup); // Updated!
+    pass.draw(numTriangles*3);
+    pass.end();
+
+    const commandBuffer = encoder.finish();
+    device.queue.submit([commandBuffer]);
+    window.requestAnimationFrame(updateGrid);
+    time_t = time_t + 0.016;
+  }
+  window.requestAnimationFrame(updateGrid);
+}

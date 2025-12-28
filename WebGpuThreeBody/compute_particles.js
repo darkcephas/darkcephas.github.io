@@ -1,7 +1,6 @@
 
 
-const SOFT_SCALE = 0.0003;
-const COARSE_RANGE = 2;
+
 const DELTA_T = 0.0000003;
 var compute_pipe;
 var compute_binding;
@@ -33,7 +32,7 @@ function setup_compute_particles(uniformBuffer) {
 
         fn force(pos: array<vec2f,3> ) -> array<vec2f,3> {
           var force_out : array<vec2f, 3>;
-          const force_mult = 20000.0;
+          const force_mult = 30000.0;
           for(var i = 0u; i < 3u; i++){
               for(var j = 0u; j < 3u; j++){
                  if(i != j){
@@ -83,8 +82,8 @@ function setup_compute_particles(uniformBuffer) {
                 pos[i] = pos[i] - offset_pos;
               }
 
-              var num_iter = clamp( u32( 1.0/(min_dist)), 5u, 50u);
-              var dt =  0.000002/f32(num_iter);
+              var num_iter = clamp( u32( 100.0/(min_dist)), 5u, 50u);
+              var dt =  0.00002/f32(num_iter);
               const num_stages = 4u;
               const kCoeff = array(0.5, 0.5, 1.0);
               const kWeights = array(1.0/ 6.0, 2.0/ 6.0, 2.0/ 6.0, 1.0/ 6.0);

@@ -1,0 +1,14 @@
+
+we need a data file that contains triangles (facing) and color + maybe emissive
+
+We can import this every frame -> all triangles
+
+Each Cell will have N triangles. This will be ~100s at most. 
+We process all the triangles in || each thread has a ray and then tests against a triangle.
+Thus we only load the trangle into workgroup memory once. We can easily do 256 rays at once.
+Most of the rays will go to other cells. We can have per input cell slots (no sync) or just 1 cell one slot for all of rays.
+
+Based on syncronization concerneds we will have each workgroup propagate rays independently.
+However it will do so on a cell by cell basis. So there will be room for N (1000) rays per cell. 
+We can support overflow buffers as well. We can do indirection to one larger location for the actual ray data.
+The overflow rays buffer is processed when we have a lack of work to do. This makes everything more cache coherent.

@@ -100,11 +100,11 @@ window.onload = async function () {
   var sum_vel_x = 0.0;
   var sum_vel_y = 0.0;
   for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
-    planet_pos_x.push((Math.random() - 0.5) * 0.5);
-    planet_pos_y.push((Math.random() - 0.5) * 0.5);
+    planet_pos_x.push((Math.random() - 0.5) * 0.3);
+    planet_pos_y.push((Math.random() - 0.5) * 0.3);
 
-    var curr_vel_x = (Math.random() - 0.5) * 3.0;
-    var curr_vel_y = (Math.random() - 0.5) * 3.0;
+    var curr_vel_x = (Math.random() - 0.5) * 2.0;
+    var curr_vel_y = (Math.random() - 0.5) * 2.0;
 
     planet_vel_x.push(j == NUM_PARTICLES_PER_MICRO - 1 ? -sum_vel_x : curr_vel_x);
     planet_vel_y.push(j == NUM_PARTICLES_PER_MICRO - 1 ? -sum_vel_y : curr_vel_y);
@@ -145,7 +145,7 @@ window.onload = async function () {
     for (let j = 0; j < NUM_PARTICLES_PER_MICRO; j++) {
       let q = i + j * numElementsCell;
 
-      var variation = 0.001;
+      var variation = 0.01;
       var curr_pos_x = planet_pos_x[j]* WORLD_SCALE + (Math.random() - 0.5) * variation;
       var curr_pos_y = planet_pos_y[j]* WORLD_SCALE + (Math.random() - 0.5) * variation;
 
