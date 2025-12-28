@@ -175,12 +175,18 @@ window.onload = async function () {
         //pos = test_array[input.instance % 3];
         let s_pos = pos;
         let rot = canvas_size.w*0.2;
-        pos.z= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
-        pos.x = s_pos.x * sin(rot) + s_pos.z * cos(rot);
-
+        pos.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+        pos.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
+        const zNear = 0.05;
+        const zFar = 1.3;
+        let rangeInv = 1 / (zNear - zFar);
         pos.y -= 0.25;
         pos.x *= canvas_size.y/canvas_size.x;
-        output.pos = vec4f(pos.xy, pos.z, pos.z);
+        pos.x *= 1.5;
+        pos.y *= 1.5;
+        let w_per = - pos.z;
+        pos.z =  zFar * rangeInv* pos.z + zNear * zFar * rangeInv;
+        output.pos = vec4f(pos.xy, pos.z, w_per );
         return output;
       }
 
@@ -212,7 +218,7 @@ window.onload = async function () {
 
   var renderPipe = device.createRenderPipeline({
     label: "render pipeline",
-    depthStencil: { depthCompare: "always", depthWriteEnabled: true, format: "depth24plus" },
+    depthStencil: { depthCompare: "less", depthWriteEnabled: true, format: "depth24plus" },
     layout: pipelineLayout, // Updated!
     primative: { cullmode: "none" },
     vertex: {
