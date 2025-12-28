@@ -52,7 +52,7 @@ window.onload = async function () {
     depthTexture = device.createTexture({
       size: { width: canvas_width, height: canvas_height },
       dimension: '2d',
-      format: 'depth24plus',
+      format: 'depth32float',
       usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
 
@@ -174,7 +174,7 @@ window.onload = async function () {
         //var test_array= array(vec3f(0,0,.1), vec3f(1,0,.1),vec3f(0,1,.1));
         //pos = test_array[input.instance % 3];
         let s_pos = pos;
-        let rot = canvas_size.w*0.2;
+        let rot = sin(canvas_size.w*0.2)*1.71;
         pos.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
         pos.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
         const zNear = 0.05;
@@ -218,7 +218,7 @@ window.onload = async function () {
 
   var renderPipe = device.createRenderPipeline({
     label: "render pipeline",
-    depthStencil: { depthCompare: "less", depthWriteEnabled: true, format: "depth24plus" },
+    depthStencil: { depthCompare: "less", depthWriteEnabled: true, format: "depth32float" },
     layout: pipelineLayout, // Updated!
     primative: { cullmode: "none" },
     vertex: {
