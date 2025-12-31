@@ -5,6 +5,8 @@ const NUM_MICRO_SIMS = 256 * 256 * 2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 const WORLD_SCALE = 1000.0;
+const ACCEL_DIV = 16;
+const ACCEL_MAX_CELL_COUNT = 1024;
 var canvas_width;
 var canvas_height;
 var canvas_width_stride;
@@ -16,8 +18,10 @@ var starGraphicsBindGroup;
 var massGraphicsBindGroup;
 var forceIndexBindGroups;
 var vizBufferStorage;
+var empytBuffer;
 var time_t = 0.0;
 var depthTexture;
+var triAccelBuffer;
 "use strict";
 
 
@@ -30,6 +34,21 @@ window.onload = async function () {
 
   window.addEventListener('resize', resizeCanvas, false);
   const canvas = document.querySelector("canvas");
+  if (!canvas) {
+    throw new Error("No canvas.");
+  }
+
+  
+
+  // Your WebGPU code will begin here!
+  if (!navigator.gpu) {
+    throw new Error("WebGPU not supported on this browser.");
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("No appropriate GPUAdapter found.");
+  }
+
   function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -47,8 +66,18 @@ window.onload = async function () {
       });
 
 
+     empytBuffer =
+      device.createBuffer({
+        label: "Viz buffer",
+        size: numVizBufferTotal,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
 
 
+
+
+
+    // only used by rasterizer
     depthTexture = device.createTexture({
       size: { width: canvas_width, height: canvas_height },
       dimension: '2d',
@@ -67,22 +96,24 @@ window.onload = async function () {
 
 
 
-  if (!canvas) {
-    throw new Error("No canvas.");
-  }
+
   canvas_width = canvas.width;
   canvas_height = canvas.height;
 
-
-  // Your WebGPU code will begin here!
-  if (!navigator.gpu) {
-    throw new Error("WebGPU not supported on this browser.");
-  }
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    throw new Error("No appropriate GPUAdapter found.");
-  }
   device = await adapter.requestDevice({ requiredFeatures: ['bgra8unorm-storage'] });
+  
+  // Moderate size structure (16mb)
+  // Lists of indices
+  const size_int_to_byte = 4;
+  const accel_buff_size =  ACCEL_DIV * ACCEL_DIV * ACCEL_DIV * ACCEL_MAX_CELL_COUNT * size_int_to_byte;
+  triAccelBuffer = 
+    device.createBuffer({
+      label: "Triangle accel",
+      size: accel_buff_size,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    
   context = canvas.getContext("webgpu");
   canvasformat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
@@ -92,7 +123,8 @@ window.onload = async function () {
   });
 
   resizeCanvas();
-  const numTriangles = cr_data.length / (4 * 3);
+  var mesh_data = peach_data;
+  const numTriangles = mesh_data.length / (4 * 3);
   const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
   const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
   var triStateStorage =
@@ -103,18 +135,26 @@ window.onload = async function () {
     });
 
 
-  //Math.random()
-
   var triDataOutIdx = 0;
   var triDataPutIdx = 0;
   const scalingXYZ = 0.03;
-  while (triDataOutIdx < cr_data.length) {
+  const bRandColor = true;
+  while (triDataOutIdx < mesh_data.length) {
     // v0, v1, v2, col
     for (var i = 0; i < 4; i++) {
-      const localScale = i==3 ? 1.0 : scalingXYZ;
-      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
-      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
-      triStateArray[triDataPutIdx++] = cr_data[triDataOutIdx++] * localScale;
+      if(i == 3 && bRandColor){
+        triStateArray[triDataPutIdx++] = Math.random();
+        triStateArray[triDataPutIdx++] = Math.random();
+        triStateArray[triDataPutIdx++] = Math.random();
+        triDataOutIdx+=3;
+      }
+      else
+      {
+        const localScale = i==3 ? 1.0 : scalingXYZ;
+        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
+        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
+        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
+      }
       triStateArray[triDataPutIdx++] = 0.0;
     }
   }
@@ -180,10 +220,10 @@ window.onload = async function () {
         const zNear = 0.05;
         const zFar = 1.3;
         let rangeInv = 1 / (zNear - zFar);
-        pos.y -= 0.25;
+        pos.y -= 0.1;
         pos.x *= canvas_size.y/canvas_size.x;
-        pos.x *= 1.5;
-        pos.y *= 1.5;
+        pos.x *= 1.;
+        pos.y *= 1.;
         let w_per = - pos.z;
         pos.z =  zFar * rangeInv* pos.z + zNear * zFar * rangeInv;
         output.pos = vec4f(pos.xy, pos.z, w_per );
@@ -212,7 +252,7 @@ window.onload = async function () {
   });
 
   const pipelineLayout = device.createPipelineLayout({
-    label: "Cell Pipeline Layout",
+    label: "Render Pipeline Layout",
     bindGroupLayouts: [bindGroupLayout],
   });
 
@@ -253,7 +293,7 @@ window.onload = async function () {
 
 
 
-  //setup_compute_particles(uniformBuffer, cellStateStorage. vizBufferStorage);
+  setup_compute_particles();
 
   let step = 0; // Track how many simulation steps have been run        
   function updateGrid() {
@@ -261,13 +301,12 @@ window.onload = async function () {
     UpdateUniforms();
     // Start a render pass 
     const encoder = device.createCommandEncoder();
-    // update_compute_particles(cellStateStorage, vizBufferStorage, encoder, step);
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: context.getCurrentTexture().createView(),
         loadOp: "clear",
-        clearValue: { r: 0, g: 0.0, b: 0.1, a: 0.0 },
+        clearValue: { r: 0, g: 0.0, b: 0.0, a: 0.0 },
         storeOp: "store",
       }],
       depthStencilAttachment: {
@@ -280,8 +319,12 @@ window.onload = async function () {
 
     pass.setPipeline(renderPipe);
     pass.setBindGroup(0, graphicsBindGroup); // Updated!
-    pass.draw(numTriangles*3);
+    pass.draw(100);
     pass.end();
+
+
+   update_compute_particles(triStateStorage, triAccelBuffer, encoder, step);
+
 
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);

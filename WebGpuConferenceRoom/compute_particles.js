@@ -6,7 +6,7 @@ var compute_pipe;
 var compute_binding;
 var bindGroupLayout;
 
-function setup_compute_particles(uniformBuffer) {
+function setup_compute_particles() {
 
   const simShaderModule = device.createShaderModule({
     label: "ParticleAvec",
@@ -166,36 +166,138 @@ function setup_compute_particles(uniformBuffer) {
   const drawShaderModule = device.createShaderModule({
     label: "ParticleAvec",
     code: `
-        struct Particle {
-           posi: vec2i,
-           id: vec2f,
-           posf: vec2f,
-           vel: vec2f,
-        };
+      struct Triangle{
+        pos0:vec3f, padd0:f32,
+        pos1:vec3f, padd1:f32,
+        pos2:vec3f, padd2:f32,
+        col:vec3f, cpadd:f32,
+      };
 
         @group(0) @binding(0) var<uniform> canvas_size: vec4f;
-        @group(0) @binding(1) var<storage, read_write> cellStateOut: array<Particle>;
-        @group(0) @binding(2) var<storage, read_write> vizBuff: array<vec4u>;
+        @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
+        @group(0) @binding(2) var<storage, read_write> accelTri: array<
+                                                                  array<
+                                                                   array<
+                                                                    array< u32, ${ACCEL_MAX_CELL_COUNT}>
+                                                                      ,${ACCEL_DIV}>
+                                                                        ,${ACCEL_DIV}>
+                                                                         ,${ACCEL_DIV}> ;
         @group(0) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
+
+        //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+        fn ray_intersects_triangle( ray_origin:vec3f,
+            ray_vector:vec3f,
+            tri: Triangle) -> vec4f
+        {
+            var epsilon = 0.00001;
+
+            var edge1 = tri.pos1 - tri.pos0;
+            var edge2 = tri.pos2 - tri.pos0;
+            var ray_cross_e2 = cross(ray_vector, edge2);
+            var det = dot(edge1, ray_cross_e2);
+
+            if (det > -epsilon && det < epsilon){
+                return vec4f(0,0,0,-1);    // This ray is parallel to this triangle.
+            }
+
+            var inv_det = 1.0 / det;
+            var s = ray_origin - tri.pos0;
+            var u = inv_det * dot(s, ray_cross_e2);
+
+            if ((u < 0 && abs(u) > epsilon) || (u > 1 && abs(u-1) > epsilon)){
+                return vec4f(0,0,0,-1);
+            }
+
+            var s_cross_e1 = cross(s, edge1);
+            var v = inv_det * dot(ray_vector, s_cross_e1);
+
+            if ((v < 0 && abs(v) > epsilon) || (u + v > 1 && abs(u + v - 1) > epsilon)){
+                return vec4f(0,0,0,-1);
+            }
+
+            // At this stage we can compute t to find out where the intersection point is on the line.
+            var t = inv_det * dot(edge2, s_cross_e1);
+
+            if (t > epsilon) // ray intersection
+            {
+                return  vec4f(ray_origin + ray_vector * t, t);
+            }
+            else // This means that there is a line intersection but not a ray intersection.
+            {
+                return vec4f(0,0,0,-1);
+            }
+        }
+
+        var<workgroup> wg_triangle: Triangle;
+        
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            // Three bodies at the same time.
             const wg_size = ${WORKGROUP_SIZE};
 
             let width_stride = u32(canvas_size.z);
-          
-            let pix_pos = vec2u(local_idx + wg_id.x*wg_size, wg_id.y + (wg_id.z*256));
-            if(pix_pos.x >= u32(canvas_size.x) || pix_pos.y >= u32(canvas_size.y)){
-                // This can happen because rounding of workgroup size vs resolution
-                return ;
-            }
+
+            // we have these 16x16 tiles and we have 16x16 total of them
+            // for a 256 area.  65536 pixels 
+            for(var tile_x = 0u; tile_x < 16u; tile_x++){
+              for(var tile_y = 0u; tile_y < 16u; tile_y++){
             
-            let sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
-            let white_color = vec4f(f32(sample.x), f32(sample.y), f32(sample.z), 1)/16.0;
-   
-            textureStore(frame_buffer, pix_pos , white_color);
+                workgroupBarrier();
+
+                var x = tile_x*16u + wg_id.x * 256u;
+                var y = tile_y*16u + wg_id.y * 256u;
+                if(x >= u32(canvas_size.x) || y >= u32(canvas_size.y)){  
+                  // skip entire workgroup of work
+                  continue;
+                }
+
+                var intra_x = local_idx % 16u;
+                var intra_y = local_idx / 16u;
+                x += intra_x;
+                y += intra_y;
+
+
+                var homo_xy = (vec2f(f32(x)/canvas_size.x,f32(y)/canvas_size.y)-vec2(0.5,0.5)) * 2.0;
+                homo_xy.y = - homo_xy.y;
+                var ray_orig = vec3(0,0.2, 0);
+                var ray_vec = normalize(vec3f(homo_xy, 1.0));
+
+                let s_pos = ray_vec;
+                let rot = canvas_size.w*.2+3.1;
+                ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+                ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
+
+                var min_t = 100000000.0;
+                var color_tri = vec3f(0,0,0);
+
+    
+
+                for(var i =0u; i < 1000u; i++){
+                     workgroupBarrier();
+                    var curr_tri = triangles[i];;
+                    var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
+                    if(res.w > 0.0 && res.w <= min_t){
+                        min_t = res.w;
+                        color_tri = curr_tri.col;
+                    }
+                    workgroupBarrier();
+                }
+                 workgroupBarrier();
+
+                let pix_pos = vec2u(x, y);
+                  // This can happen because rounding of workgroup size vs resolution
+                if(pix_pos.x < u32(canvas_size.x) || pix_pos.y < u32(canvas_size.y)){              
+                  //et sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
+                  let white_color = vec4f(color_tri, 1);
+        
+                  textureStore(frame_buffer, pix_pos , white_color);
+                }
+                workgroupBarrier();
+              }
+            }
+          
+
         }
       `
   });
@@ -247,11 +349,10 @@ function setup_compute_particles(uniformBuffer) {
 
 }
 
-function update_compute_particles(computeStorageBuffer, vizBufferStorage, encoder, step) {
-  encoder.clearBuffer(vizBufferStorage);
+function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, step) {
+ // encoder.clearBuffer(vizBufferStorage);
   const computePass = encoder.beginComputePass();
-  computePass.setPipeline(compute_pipe);
-  let res_view = context.getCurrentTexture().createView();
+  computePass.setPipeline(draw_pipe);
   compute_binding = device.createBindGroup({
     label: "GlobalBind",
     layout: bindGroupLayout,
@@ -260,22 +361,23 @@ function update_compute_particles(computeStorageBuffer, vizBufferStorage, encode
       resource: { buffer: uniformBuffer }
     }, {
       binding: 1, // New Entry
-      resource: { buffer: computeStorageBuffer },
+      resource: { buffer: triStorageBuffer },
     }, {
       binding: 2, // New Entry
-      resource: { buffer: vizBufferStorage },
+      resource: { buffer: triAccelBuffer },
     },
-    { binding: 3, resource: res_view },],
+    { binding: 3, resource: context.getCurrentTexture().createView() },],
   });
+ // computePass.setBindGroup(0, compute_binding);
+  //const workgroupCount = Math.ceil(NUM_MICRO_SIMS / WORKGROUP_SIZE);
+  //computePass.dispatchWorkgroups(workgroupCount);
+  //computePass.setPipeline(draw_pipe);
   computePass.setBindGroup(0, compute_binding);
-  const workgroupCount = Math.ceil(NUM_MICRO_SIMS / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(workgroupCount);
-  computePass.setPipeline(draw_pipe);
-  computePass.setBindGroup(0, compute_binding);
-  const numWorkgroupPerRow = Math.floor(canvas_width_stride / WORKGROUP_SIZE);
-  const numWorkgroupZ = Math.ceil(canvas_height / 256);
-  const numWorkgroupY = numWorkgroupZ > 1 ? 256  : Math.ceil(canvas_height);
-  computePass.dispatchWorkgroups(numWorkgroupPerRow, numWorkgroupY, numWorkgroupZ);
+
+  const dispatch_width =  Math.ceil(canvas_width / WORKGROUP_SIZE);
+  const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
+
+  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 1);
   computePass.end();
 }
 
