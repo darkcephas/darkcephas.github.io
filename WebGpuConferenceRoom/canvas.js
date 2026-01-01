@@ -22,12 +22,20 @@ var empytBuffer;
 var time_t = 0.0;
 var depthTexture;
 var triAccelBuffer;
+var tri_pos_min_x = 100000.0;
+var tri_pos_min_y = 100000.0;
+var tri_pos_min_z = 100000.0;
+var tri_pos_max_x = -100000.0;
+var tri_pos_max_y = -100000.0;
+var tri_pos_max_z = -100000.0;
 "use strict";
 
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
-  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_stride, time_t]);
+  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_stride, time_t,
+                                        tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0 ,
+                                        tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 window.onload = async function () {
@@ -113,7 +121,7 @@ window.onload = async function () {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    
+
   context = canvas.getContext("webgpu");
   canvasformat = navigator.gpu.getPreferredCanvasFormat();
   context.configure({
@@ -140,7 +148,7 @@ window.onload = async function () {
   const scalingXYZ = 0.03;
   const bRandColor = true;
   while (triDataOutIdx < mesh_data.length) {
-    // v0, v1, v2, col
+    // v0, v1, v2, col (3 idx)
     for (var i = 0; i < 4; i++) {
       if(i == 3 && bRandColor){
         triStateArray[triDataPutIdx++] = Math.random();
@@ -151,9 +159,21 @@ window.onload = async function () {
       else
       {
         const localScale = i==3 ? 1.0 : scalingXYZ;
-        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
-        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
-        triStateArray[triDataPutIdx++] = mesh_data[triDataOutIdx++] * localScale;
+        var x = mesh_data[triDataOutIdx++] * localScale;
+        triStateArray[triDataPutIdx++] = x;
+        var y = mesh_data[triDataOutIdx++] * localScale;
+        triStateArray[triDataPutIdx++] = y;
+        var z = mesh_data[triDataOutIdx++] * localScale;
+        triStateArray[triDataPutIdx++] = z;
+        if(i!=3){
+          tri_pos_max_x = Math.max(x, tri_pos_max_x);
+          tri_pos_max_y = Math.max(y, tri_pos_max_y);
+          tri_pos_max_z = Math.max(z, tri_pos_max_z);
+          tri_pos_min_x = Math.min(x, tri_pos_min_x);
+          tri_pos_min_y = Math.min(y, tri_pos_min_y);
+          tri_pos_min_z = Math.min(z, tri_pos_min_z);
+        }
+
       }
       triStateArray[triDataPutIdx++] = 0.0;
     }
@@ -163,8 +183,8 @@ window.onload = async function () {
 
 
   uniformBuffer = device.createBuffer({
-    label: "Grid Uniforms",
-    size: 16,
+    label: "Uniforms",
+    size: 128,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
   UpdateUniforms();
@@ -319,7 +339,7 @@ window.onload = async function () {
 
     pass.setPipeline(renderPipe);
     pass.setBindGroup(0, graphicsBindGroup); // Updated!
-    pass.draw(100);
+    //pass.draw(numTriangles*3);
     pass.end();
 
 

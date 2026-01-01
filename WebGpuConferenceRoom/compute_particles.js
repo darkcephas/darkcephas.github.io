@@ -8,161 +8,7 @@ var bindGroupLayout;
 
 function setup_compute_particles() {
 
-  const simShaderModule = device.createShaderModule({
-    label: "ParticleAvec",
-    code: `
-        struct Particle {
-           unused_data: vec2i,
-           id: vec2f,
-           posf: vec2f,
-           vel: vec2f,
-        };
-
-
-        struct VisStruct
-        {
-            viz: array<atomic<u32>, 4>
-        };
-        
-        @group(0) @binding(0) var<uniform> canvas_size: vec4f;
-        @group(0) @binding(1) var<storage, read_write> cellStateOut: array<Particle>;
-        @group(0) @binding(2) var<storage, read_write> vizBuff: array<VisStruct>;
-        @group(0) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
-
-
-        fn force(pos: array<vec2f,3> ) -> array<vec2f,3> {
-          var force_out : array<vec2f, 3>;
-          const force_mult = 30000.0;
-          for(var i = 0u; i < 3u; i++){
-              for(var j = 0u; j < 3u; j++){
-                 if(i != j){
-                      let diff = (pos[i] - pos[j])/force_mult;
-                      force_out[i] += - normalize(diff)/dot(diff,diff);
-                  }
-               }
-          }
-          return force_out;
-        }
-
-        @compute @workgroup_size(${WORKGROUP_SIZE})
-        fn main(  @builtin(local_invocation_index) local_idx:u32,
-        @builtin(	workgroup_id) wg_id:vec3u) {
-            // Three bodies at the same time.
-            
-            const wg_size = ${WORKGROUP_SIZE};
-            const world_scale = f32(${WORLD_SCALE});
-            let width_stride = u32(canvas_size.z);
-            let idx = local_idx + (wg_size * wg_id.x);
-            let part_start = idx * 3; // every 3 bodies
-
-
-            var pos : array<vec2f, 3>;
-            var vel : array<vec2f, 3>;
-            for(var i = 0u; i < 3u; i++){
-                pos[i] = cellStateOut[part_start + i].posf;
-                vel[i] = cellStateOut[part_start + i].vel;
-            }
-
-
-            for(var q = 0u; q < 20u; q++){
-              var min_dist = 1000000.0;
-              var min_dist_idx = 0u;
-
-              for(var i = 0u; i < 3u; i++){
-                    var dist = length(pos[i]-pos[(i+1u)%3u]);
-                    if(dist < min_dist){
-                      min_dist_idx = i;
-                      min_dist = dist;
-                    }
-              }
-
-              
-              var offset_pos = pos[min_dist_idx];
-              for(var i = 0u; i < 3u; i++){
-                pos[i] = pos[i] - offset_pos;
-              }
-
-              var num_iter = clamp( u32( 100.0/(min_dist)), 5u, 50u);
-              var dt =  0.00002/f32(num_iter);
-              const num_stages = 4u;
-              const kCoeff = array(0.5, 0.5, 1.0);
-              const kWeights = array(1.0/ 6.0, 2.0/ 6.0, 2.0/ 6.0, 1.0/ 6.0);
-              for(var b =0u;b <num_iter;b++){
-
-                var xk = array<array<vec2f,3>,num_stages>();
-                var vk = array<array<vec2f,3>,num_stages>();
-                xk[0] = vel;
-                vk[0] = force(pos);
-
-                for(var stage = 1u; stage < num_stages; stage++){
-                    // Compute acceleration
-                    var temp_pos = array<vec2f,3>();
-                    for(var i = 0u; i < 3u; i++){
-                      temp_pos[i] = pos[i] + xk[stage - 1][i] * dt * kCoeff[stage - 1];
-                    }
-                    var a = force(temp_pos);
-
-                    // Compute xk and vk
-                    for(var i = 0u; i < 3u; i++){
-                      xk[stage][i] = vel[i] + vk[stage - 1][i] * dt * kCoeff[stage - 1]; 
-                    }
-                    vk[stage] = a;
-                }
-        
-                  var dx : array<vec2f,3>;
-                  var dv : array<vec2f,3>;
-                  for(var stage = 0u; stage < num_stages; stage++){
-                    for(var i = 0u; i < 3u; i++){
-                      dx[i] += kWeights[stage] * xk[stage][i];
-                      dv[i] += kWeights[stage] * vk[stage][i];
-                    }
-                  }
-
-                  for(var i = 0u; i < 3u; i++){
-                    pos[i] = pos[i] + dt * dx[i];
-                    vel[i] = vel[i] + dt * dv[i];
-                  }
-              }
-
-              for(var i = 0u; i < 3u; i++){
-                pos[i] = pos[i] + offset_pos;
-              }
-            }
-
-            // Anti aliased drawing of 3 particles from world to screen
-            // We could actually do it stochastically!
-            for(var i = 0u; i < 3u; i++){
-                var as_float_temp = pos[i];
-                var pix_pos = (pos[i]/world_scale + vec2f(0.5,0.5)) * canvas_size.xy;
-
-                cellStateOut[part_start + i].posf = as_float_temp;
-                cellStateOut[part_start + i].vel = vel[i];
-
-                var pix_pos_int = vec2u(pix_pos);
-                var pix_pos_frac = fract(pix_pos);
-                
-                if( pix_pos.x > 0.0 && pix_pos.x < canvas_size.x
-                   && pix_pos.y > 0.0 && pix_pos.y < canvas_size.y){
-                    // bilinear filtering
-                    var kSubPixelMult = 16.0;
-                    var x0y0 = (1-pix_pos_frac.x)* (1-pix_pos_frac.y)*kSubPixelMult;
-                    var x1y0 = (pix_pos_frac.x)* (1-pix_pos_frac.y)*kSubPixelMult;
-                    var x0y1 = (1-pix_pos_frac.x)* (pix_pos_frac.y)*kSubPixelMult;
-                    var x1y1 = (pix_pos_frac.x)* (pix_pos_frac.y)*kSubPixelMult;
-
-
-                     atomicAdd(&vizBuff[pix_pos_int.x + pix_pos_int.y * width_stride].viz[i], u32(x0y0));
-                     atomicAdd(&vizBuff[pix_pos_int.x + 1 + pix_pos_int.y * width_stride].viz[i], u32(x1y0));
-                     atomicAdd(&vizBuff[pix_pos_int.x + (pix_pos_int.y +1) * width_stride].viz[i], u32(x0y1));
-                     atomicAdd(&vizBuff[pix_pos_int.x + 1 + (pix_pos_int.y+1) * width_stride].viz[i], u32(x1y1));
-
-                } 
-            }
-        }
-      `
-  });
-
-
+ 
   const drawShaderModule = device.createShaderModule({
     label: "ParticleAvec",
     code: `
@@ -173,7 +19,15 @@ function setup_compute_particles() {
         col:vec3f, cpadd:f32,
       };
 
-        @group(0) @binding(0) var<uniform> canvas_size: vec4f;
+      struct Uniforms{
+        canvas_size: vec2f,
+        canvas_stride: f32,
+        time_in:f32,
+        tri_pos_min: vec4f,
+        tri_pos_max: vec4f
+      };
+
+        @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
         @group(0) @binding(2) var<storage, read_write> accelTri: array<
                                                                   array<
@@ -229,15 +83,10 @@ function setup_compute_particles() {
             }
         }
 
-        var<workgroup> wg_triangle: Triangle;
-        
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
             const wg_size = ${WORKGROUP_SIZE};
-
-            let width_stride = u32(canvas_size.z);
-
             // we have these 16x16 tiles and we have 16x16 total of them
             // for a 256 area.  65536 pixels 
             for(var tile_x = 0u; tile_x < 16u; tile_x++){
@@ -247,7 +96,7 @@ function setup_compute_particles() {
 
                 var x = tile_x*16u + wg_id.x * 256u;
                 var y = tile_y*16u + wg_id.y * 256u;
-                if(x >= u32(canvas_size.x) || y >= u32(canvas_size.y)){  
+                if(x >= u32(uni.canvas_size.x) || y >= u32(uni.canvas_size.y)){  
                   // skip entire workgroup of work
                   continue;
                 }
@@ -258,13 +107,13 @@ function setup_compute_particles() {
                 y += intra_y;
 
 
-                var homo_xy = (vec2f(f32(x)/canvas_size.x,f32(y)/canvas_size.y)-vec2(0.5,0.5)) * 2.0;
+                var homo_xy = (vec2f(f32(x)/uni.canvas_size.x,f32(y)/uni.canvas_size.y)-vec2(0.5,0.5)) * 2.0;
                 homo_xy.y = - homo_xy.y;
                 var ray_orig = vec3(0,0.2, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
 
                 let s_pos = ray_vec;
-                let rot = canvas_size.w*.2+3.1;
+                let rot = uni.time_in*.2+3.1;
                 ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
                 ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
 
@@ -287,8 +136,8 @@ function setup_compute_particles() {
 
                 let pix_pos = vec2u(x, y);
                   // This can happen because rounding of workgroup size vs resolution
-                if(pix_pos.x < u32(canvas_size.x) || pix_pos.y < u32(canvas_size.y)){              
-                  //et sample = vizBuff[pix_pos.x + pix_pos.y * width_stride];
+                if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){              
+               
                   let white_color = vec4f(color_tri, 1);
         
                   textureStore(frame_buffer, pix_pos , white_color);
@@ -298,6 +147,50 @@ function setup_compute_particles() {
             }
           
 
+        }
+
+       fn box_intersects_triangle( box_min:vec3f,
+            box_max:vec3f,
+            tri: Triangle) -> bool
+        {
+          var tri_max = max(max(tri.pos0, tri.pos1), tri.pos2);
+          var tri_min = min(min(tri.pos0, tri.pos1), tri.pos2);
+
+          // overlap test
+          if(all(tri_min <= box_max) && all(tri_max >= box_min)){
+            return true;
+          }
+
+          return false;
+        }
+
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn accelmain(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u) {
+            // wg_id.x is the z divisions
+            // local_index will be x and y divisions
+            var x = local_idx % ${ACCEL_DIV};
+            var y = local_idx / ${ACCEL_DIV};
+            var z = wg_id.x;
+
+            var tri_scene_min = uni.tri_pos_min.xyz;
+            var tri_scene_max = uni.tri_pos_max.xyz;
+            var per_cell_delta = (tri_scene_max - tri_scene_min) / f32(${ACCEL_DIV});
+            // Set zero triangles for cell
+            var count_cell = 0u;
+            // aabb
+            var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
+            var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
+            for(var i =0u; i < 1000u; i++){
+              workgroupBarrier();
+              var curr_tri = triangles[i];
+              if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
+                  count_cell++;
+                  accelTri[z][y][x][count_cell] = i; 
+              }
+              workgroupBarrier();
+            }
+            accelTri[z][y][x][0] = count_cell;
         }
       `
   });
@@ -329,13 +222,6 @@ function setup_compute_particles() {
     bindGroupLayouts: [bindGroupLayout],
   });
 
-  compute_pipe = device.createComputePipeline({
-    label: "Sim",
-    layout: pipelineLayout,
-    compute: {
-      module: simShaderModule,
-    }
-  });
 
 
   draw_pipe = device.createComputePipeline({
@@ -343,8 +229,19 @@ function setup_compute_particles() {
     layout: pipelineLayout,
     compute: {
       module: drawShaderModule,
+      entryPoint: "main"
     }
   });
+
+  accel_pipe = device.createComputePipeline({
+    label: "Draw",
+    layout: pipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "accelmain"
+    }
+  });
+
 
 
 }
@@ -352,7 +249,6 @@ function setup_compute_particles() {
 function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, step) {
  // encoder.clearBuffer(vizBufferStorage);
   const computePass = encoder.beginComputePass();
-  computePass.setPipeline(draw_pipe);
   compute_binding = device.createBindGroup({
     label: "GlobalBind",
     layout: bindGroupLayout,
@@ -360,23 +256,26 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
       binding: 0,
       resource: { buffer: uniformBuffer }
     }, {
-      binding: 1, // New Entry
+      binding: 1, 
       resource: { buffer: triStorageBuffer },
     }, {
-      binding: 2, // New Entry
+      binding: 2,
       resource: { buffer: triAccelBuffer },
     },
-    { binding: 3, resource: context.getCurrentTexture().createView() },],
+    { binding: 3, resource: context.getCurrentTexture().createView()},],
   });
- // computePass.setBindGroup(0, compute_binding);
-  //const workgroupCount = Math.ceil(NUM_MICRO_SIMS / WORKGROUP_SIZE);
-  //computePass.dispatchWorkgroups(workgroupCount);
-  //computePass.setPipeline(draw_pipe);
+
+  computePass.setPipeline(accel_pipe);
+  computePass.setBindGroup(0, compute_binding);
+  // low utilization here but oh well.
+  //computePass.dispatchWorkgroups(ACCEL_DIV);
+
+  computePass.setPipeline(draw_pipe);
+
   computePass.setBindGroup(0, compute_binding);
 
   const dispatch_width =  Math.ceil(canvas_width / WORKGROUP_SIZE);
   const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
-
   computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 1);
   computePass.end();
 }
