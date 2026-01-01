@@ -107,8 +107,13 @@ window.onload = async function () {
 
   canvas_width = canvas.width;
   canvas_height = canvas.height;
+  canvasformat = navigator.gpu.getPreferredCanvasFormat();
 
-  device = await adapter.requestDevice({ requiredFeatures: ['bgra8unorm-storage'] });
+  var reqFeatures = [];
+  if(canvasformat == 'bgra8unorm'){
+    reqFeatures =  ['bgra8unorm-storage']
+  }
+  device = await adapter.requestDevice({ requiredFeatures:reqFeatures });
   
   // Moderate size structure (16mb)
   // Lists of indices
@@ -123,7 +128,7 @@ window.onload = async function () {
 
 
   context = canvas.getContext("webgpu");
-  canvasformat = navigator.gpu.getPreferredCanvasFormat();
+ 
   context.configure({
     device: device,
     format: canvasformat,
