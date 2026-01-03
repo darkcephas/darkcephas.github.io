@@ -22,6 +22,7 @@ var empytBuffer;
 var time_t = 0.0;
 var depthTexture;
 var triAccelBuffer;
+var epsilon = 0.000000001;
 var tri_pos_min_x = 100000.0;
 var tri_pos_min_y = 100000.0;
 var tri_pos_min_z = 100000.0;
@@ -136,7 +137,7 @@ window.onload = async function () {
   });
 
   resizeCanvas();
-  var mesh_data = peach_data;
+  var mesh_data = cr_data;
   const numTriangles = mesh_data.length / (4 * 3);
   const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
   const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
@@ -151,7 +152,7 @@ window.onload = async function () {
   var triDataOutIdx = 0;
   var triDataPutIdx = 0;
   const scalingXYZ = 0.03;
-  const bRandColor = true;
+  const bRandColor = false;
   while (triDataOutIdx < mesh_data.length) {
     // v0, v1, v2, col (3 idx)
     for (var i = 0; i < 4; i++) {
@@ -171,18 +172,23 @@ window.onload = async function () {
         var z = mesh_data[triDataOutIdx++] * localScale;
         triStateArray[triDataPutIdx++] = z;
         if(i!=3){
-          tri_pos_max_x = Math.max(x, tri_pos_max_x);
-          tri_pos_max_y = Math.max(y, tri_pos_max_y);
-          tri_pos_max_z = Math.max(z, tri_pos_max_z);
-          tri_pos_min_x = Math.min(x, tri_pos_min_x);
-          tri_pos_min_y = Math.min(y, tri_pos_min_y);
-          tri_pos_min_z = Math.min(z, tri_pos_min_z);
+          tri_pos_max_x = Math.max(x, tri_pos_max_x+epsilon);
+          tri_pos_max_y = Math.max(y, tri_pos_max_y+epsilon);
+          tri_pos_max_z = Math.max(z, tri_pos_max_z+epsilon);
+
+          tri_pos_min_x = Math.min(x, tri_pos_min_x-epsilon);
+          tri_pos_min_y = Math.min(y, tri_pos_min_y-epsilon);
+          tri_pos_min_z = Math.min(z, tri_pos_min_z-epsilon);
         }
 
       }
       triStateArray[triDataPutIdx++] = 0.0;
     }
   }
+
+  var dbg_zero_loc_x =  16.0 * (0.0-tri_pos_min_x)  / (tri_pos_max_x-tri_pos_min_x);
+  var dbg_zero_loc_y =  16.0 * (0.2-tri_pos_min_y)  / (tri_pos_max_y-tri_pos_min_y);
+  var dbg_zero_loc_z =  16.0 * (0.0-tri_pos_min_z)  / (tri_pos_max_z-tri_pos_min_z);
 
   device.queue.writeBuffer(triStateStorage, 0, triStateArray);
 
@@ -322,6 +328,7 @@ window.onload = async function () {
 
   let step = 0; // Track how many simulation steps have been run        
   function updateGrid() {
+  
     step++; // Increment the step count
     UpdateUniforms();
     // Start a render pass 
@@ -348,13 +355,33 @@ window.onload = async function () {
     pass.end();
 
 
-   update_compute_particles(triStateStorage, triAccelBuffer, encoder, step);
+   var buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, encoder, step);
 
 
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
-    window.requestAnimationFrame(updateGrid);
+ 
+    if(false)
+    {
+
+      buff_ret.mapAsync(
+        GPUMapMode.READ,
+        0, // Offset
+        kDebugArraySize // Length
+      ).then(value => 
+      {
+        const copyArrayBuffer = buff_ret.getMappedRange();
+        const data = copyArrayBuffer.slice();
+      
+        console.log(new Float32Array(data));
+        buff_ret.unmap();
+          wait_for_debug = false;
+          
+      });
+    }
+
     time_t = time_t + 0.016;
+    window.requestAnimationFrame(updateGrid);
   }
   window.requestAnimationFrame(updateGrid);
 }

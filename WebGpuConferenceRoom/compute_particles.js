@@ -5,8 +5,19 @@ const DELTA_T = 0.0000003;
 var compute_pipe;
 var compute_binding;
 var bindGroupLayout;
-
+var debuggingBufferStorage;
+var kDebugArraySize = 1024*4*1024;
+var wait_for_debug = false;
 function setup_compute_particles() {
+
+  
+
+  debuggingBufferStorage =
+  device.createBuffer({
+    label: "debugging storage result",
+    size: kDebugArraySize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+  });
 
  
   const drawShaderModule = device.createShaderModule({
@@ -36,8 +47,8 @@ function setup_compute_particles() {
                                                                       ,${ACCEL_DIV}>
                                                                         ,${ACCEL_DIV}>
                                                                          ,${ACCEL_DIV}> ;
-        @group(0) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
-
+        @group(0) @binding(3) var<storage, read_write> dbg: array<f32>;
+         @group(0) @binding(4) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -83,6 +94,32 @@ function setup_compute_particles() {
             }
         }
 
+
+        fn per_cell_delta() -> vec3f {
+            var tri_scene_min = uni.tri_pos_min.xyz;
+            var tri_scene_max = uni.tri_pos_max.xyz;
+            var per_cell_delta = (tri_scene_max - tri_scene_min) / f32(${ACCEL_DIV});
+            return per_cell_delta;
+        }
+
+        fn pos_to_cell( pos:vec3f) -> vec3f {
+            var cell_loc_f = (pos - uni.tri_pos_min.xyz) / per_cell_delta();
+            return cell_loc_f;
+        }
+
+
+        var<workgroup> dbgIdx:u32;
+        fn dbgOut(val:f32){
+          dbg[dbgIdx] = val;
+          dbgIdx++;
+        }
+        
+        fn dbgOutV(val:vec3f){
+          dbgOut(val.x);
+          dbgOut(val.y);
+          dbgOut(val.z);
+        }
+
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
@@ -94,53 +131,94 @@ function setup_compute_particles() {
             
                 workgroupBarrier();
 
-                var x = tile_x*16u + wg_id.x * 256u;
-                var y = tile_y*16u + wg_id.y * 256u;
-                if(x >= u32(uni.canvas_size.x) || y >= u32(uni.canvas_size.y)){  
+                var pix_x = tile_x*16u + wg_id.x * 256u;
+                var pix_y = tile_y*16u + wg_id.y * 256u;
+                if(pix_x >= u32(uni.canvas_size.x) || pix_y >= u32(uni.canvas_size.y)){  
                   // skip entire workgroup of work
                   continue;
                 }
 
                 var intra_x = local_idx % 16u;
                 var intra_y = local_idx / 16u;
-                x += intra_x;
-                y += intra_y;
+                pix_x += intra_x;
+                pix_y += intra_y;
 
-
-                var homo_xy = (vec2f(f32(x)/uni.canvas_size.x,f32(y)/uni.canvas_size.y)-vec2(0.5,0.5)) * 2.0;
+                var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
+                // cam transform haxz
                 homo_xy.y = - homo_xy.y;
-                var ray_orig = vec3(0,0.2, 0);
+                var ray_orig = vec3(0,0.3, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
-
-                let s_pos = ray_vec;
-                let rot = uni.time_in*.2+3.1;
-                ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
-                ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
+                let rot =-1.1+ uni.time_in*0.2;  
+                {
+                  let s_pos = ray_vec;
+                  ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+                  ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
+                }
 
                 var min_t = 100000000.0;
                 var color_tri = vec3f(0,0,0);
 
-    
+                var cell_loc_f = pos_to_cell(ray_orig);
+                var cell_loc_i = vec3i(cell_loc_f);
+                var cell_loc_remain = cell_loc_f - vec3f(cell_loc_i);
 
-                for(var i =0u; i < 1000u; i++){
-                     workgroupBarrier();
-                    var curr_tri = triangles[i];;
-                    var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
-                    if(res.w > 0.0 && res.w <= min_t){
-                        min_t = res.w;
-                        color_tri = curr_tri.col;
+     
+                // Normalize remain to be in the positive direction
+                var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
+
+                remain_dir *= per_cell_delta(); 
+                workgroupBarrier();
+
+                for(var finite_loop = 0u; finite_loop < 100; finite_loop++) {
+                    var max_accel_size = vec3i(${ACCEL_DIV});
+          
+
+                    //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
+                    if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
+                      break;
                     }
-                    workgroupBarrier();
+                    var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
+                    for(var i = 0u; i < count_cell; i++) {
+                        var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
+                        var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
+                        if(res.w > 0.0 && res.w <= min_t){
+                            // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
+                            min_t = res.w;
+                            color_tri = curr_tri.col;
+                        }
+                    }
+                
+                    // if we have a REAL hit we should exit this loop
+                    // Find next cell 
+  
+                    var ray_vec_abs = abs(ray_vec);
+                    // when ray collision with next
+                    var t_to_edge = remain_dir / ray_vec_abs;
+       
+                    if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
+                      cell_loc_i.x += i32(sign(ray_vec.x));
+                      remain_dir -= t_to_edge.x * ray_vec_abs;
+                      remain_dir.x = per_cell_delta().x;
+                    }
+                    else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
+                      cell_loc_i.y += i32(sign(ray_vec.y));
+                      remain_dir -= t_to_edge.y * ray_vec_abs;
+                      remain_dir.y = per_cell_delta().y;
+                    }
+                    else {
+                      cell_loc_i.z += i32(sign(ray_vec.z));
+                      remain_dir -= t_to_edge.z * ray_vec_abs;
+                      remain_dir.z  = per_cell_delta().z;
+                    }
+                    
                 }
-                 workgroupBarrier();
+                workgroupBarrier();
 
-                let pix_pos = vec2u(x, y);
+                let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
-                if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){              
-               
-                  let white_color = vec4f(color_tri, 1);
-        
-                  textureStore(frame_buffer, pix_pos , white_color);
+                if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
+                  //color_tri = select(vec3f(0,0,0), vec3f(1,1,1), cell_loc_i == vec3i(6,9,13));          
+                  textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
                 }
                 workgroupBarrier();
               }
@@ -174,14 +252,13 @@ function setup_compute_particles() {
             var z = wg_id.x;
 
             var tri_scene_min = uni.tri_pos_min.xyz;
-            var tri_scene_max = uni.tri_pos_max.xyz;
-            var per_cell_delta = (tri_scene_max - tri_scene_min) / f32(${ACCEL_DIV});
+            var per_cell_delta = per_cell_delta();
             // Set zero triangles for cell
             var count_cell = 0u;
             // aabb
             var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
             var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
-            for(var i =0u; i < 1000u; i++){
+            for(var i =0u; i < 300000u; i++){
               workgroupBarrier();
               var curr_tri = triangles[i];
               if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
@@ -209,8 +286,13 @@ function setup_compute_particles() {
       binding: 2,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
-    }, {
+    }, 
+    {
       binding: 3,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    },{
+      binding: 4,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
@@ -262,13 +344,19 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
       binding: 2,
       resource: { buffer: triAccelBuffer },
     },
-    { binding: 3, resource: context.getCurrentTexture().createView()},],
+    {
+      binding: 3,
+      resource: { buffer: debuggingBufferStorage },
+    },
+    { binding: 4, resource: context.getCurrentTexture().createView()},],
   });
 
-  computePass.setPipeline(accel_pipe);
-  computePass.setBindGroup(0, compute_binding);
-  // low utilization here but oh well.
-  //computePass.dispatchWorkgroups(ACCEL_DIV);
+  if(step <= 3){
+    computePass.setPipeline(accel_pipe);
+    computePass.setBindGroup(0, compute_binding);
+    // low utilization here but oh well.
+    computePass.dispatchWorkgroups(ACCEL_DIV);
+  }
 
   computePass.setPipeline(draw_pipe);
 
@@ -278,5 +366,25 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
   const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
   computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 1);
   computePass.end();
+
+
+  const stagingBufferDebug = device.createBuffer({
+    label: "staging buff dbg",
+    size: kDebugArraySize,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+
+
+  wait_for_debug = true;
+  encoder.copyBufferToBuffer(
+    debuggingBufferStorage,
+    0, // Source offset
+    stagingBufferDebug,
+    0, // Destination offset
+    kDebugArraySize, 
+  );
+
+
+  return stagingBufferDebug;
 }
 
