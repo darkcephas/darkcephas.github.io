@@ -155,7 +155,7 @@ function setup_compute_particles() {
                   ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
                 }
 
-                var min_t = 100000000.0;
+                var min_t = 111111.0;
                 var color_tri = vec3f(0,0,0);
 
                 var cell_loc_f = pos_to_cell(ray_orig);
@@ -168,11 +168,9 @@ function setup_compute_particles() {
 
                 remain_dir *= per_cell_delta(); 
                 workgroupBarrier();
-
+      
                 for(var finite_loop = 0u; finite_loop < 100; finite_loop++) {
                     var max_accel_size = vec3i(${ACCEL_DIV});
-          
-
                     //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
@@ -183,12 +181,18 @@ function setup_compute_particles() {
                         var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
                         if(res.w > 0.0 && res.w <= min_t){
                             // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
-                            min_t = res.w;
-                            color_tri = curr_tri.col;
+                            if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz)))){
+                              min_t = res.w;
+                              color_tri = curr_tri.col;
+                            }
                         }
                     }
-                
-                    // if we have a REAL hit we should exit this loop
+                    
+                    if(min_t != 111111.0 ){
+                      // if we have a REAL hit we should exit this loop
+                     break;
+                    }
+               
                     // Find next cell 
   
                     var ray_vec_abs = abs(ray_vec);
@@ -212,15 +216,15 @@ function setup_compute_particles() {
                     }
                     
                 }
-                workgroupBarrier();
 
+                workgroupBarrier();
                 let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
                 if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
-                  //color_tri = select(vec3f(0,0,0), vec3f(1,1,1), cell_loc_i == vec3i(6,9,13));          
+                  //color_tri = vec3f(f32(num_tri_test));   
                   textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
                 }
-                workgroupBarrier();
+          
               }
             }
           
@@ -367,7 +371,8 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
   computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 1);
   computePass.end();
 
-
+  if(false){
+  
   const stagingBufferDebug = device.createBuffer({
     label: "staging buff dbg",
     size: kDebugArraySize,
@@ -383,8 +388,9 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
     0, // Destination offset
     kDebugArraySize, 
   );
+}
 
 
-  return stagingBufferDebug;
+  return null;
 }
 
