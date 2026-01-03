@@ -149,28 +149,26 @@ window.onload = async function () {
     });
 
 
-  var triDataOutIdx = 0;
+  var triDataInIdx = 0;
   var triDataPutIdx = 0;
   const scalingXYZ = 0.03;
   const bRandColor = false;
-  while (triDataOutIdx < mesh_data.length) {
+  while (triDataInIdx < mesh_data.length) {
     // v0, v1, v2, col (3 idx)
     for (var i = 0; i < 4; i++) {
       if(i == 3 && bRandColor){
         triStateArray[triDataPutIdx++] = Math.random();
         triStateArray[triDataPutIdx++] = Math.random();
         triStateArray[triDataPutIdx++] = Math.random();
-        triDataOutIdx+=3;
+        triDataInIdx+=3;
       }
       else
       {
         const localScale = i==3 ? 1.0 : scalingXYZ;
-        var x = mesh_data[triDataOutIdx++] * localScale;
-        triStateArray[triDataPutIdx++] = x;
-        var y = mesh_data[triDataOutIdx++] * localScale;
-        triStateArray[triDataPutIdx++] = y;
-        var z = mesh_data[triDataOutIdx++] * localScale;
-        triStateArray[triDataPutIdx++] = z;
+        var x = mesh_data[triDataInIdx++] * localScale;
+        var y = mesh_data[triDataInIdx++] * localScale;
+        var z = mesh_data[triDataInIdx++] * localScale;
+       
         if(i!=3){
           tri_pos_max_x = Math.max(x, tri_pos_max_x+epsilon);
           tri_pos_max_y = Math.max(y, tri_pos_max_y+epsilon);
@@ -181,6 +179,9 @@ window.onload = async function () {
           tri_pos_min_z = Math.min(z, tri_pos_min_z-epsilon);
         }
 
+        triStateArray[triDataPutIdx++] = x;
+        triStateArray[triDataPutIdx++] = y;
+        triStateArray[triDataPutIdx++] = z;
       }
       triStateArray[triDataPutIdx++] = 0.0;
     }
