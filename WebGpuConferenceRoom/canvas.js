@@ -251,7 +251,7 @@ window.onload = async function () {
         const zNear = 0.05;
         const zFar = 1.3;
         let rangeInv = 1 / (zNear - zFar);
-        pos.y -= 0.1;
+        pos.y -= 0.2;
         pos.x *= canvas_size.y/canvas_size.x;
         pos.x *= 1.;
         pos.y *= 1.;
@@ -291,7 +291,7 @@ window.onload = async function () {
     label: "render pipeline",
     depthStencil: { depthCompare: "less", depthWriteEnabled: true, format: "depth32float" },
     layout: pipelineLayout, // Updated!
-    primative: { cullmode: "none" },
+    primitive: { cullMode: "front" , frontFace: "cw"},
     vertex: {
       module: renderShaderModule,
       entryPoint: "vertexMain",
@@ -351,7 +351,7 @@ window.onload = async function () {
 
     pass.setPipeline(renderPipe);
     pass.setBindGroup(0, graphicsBindGroup); // Updated!
-    //pass.draw(numTriangles*3);
+   // pass.draw(numTriangles*3);
     pass.end();
 
 

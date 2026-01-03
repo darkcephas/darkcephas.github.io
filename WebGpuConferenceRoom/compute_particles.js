@@ -55,7 +55,7 @@ function setup_compute_particles() {
             ray_vector:vec3f,
             tri: Triangle) -> vec4f
         {
-            var epsilon = 0.00001;
+            var epsilon = 0.00000001;
 
             var edge1 = tri.pos1 - tri.pos0;
             var edge2 = tri.pos2 - tri.pos0;
@@ -264,7 +264,7 @@ function setup_compute_particles() {
             // aabb
             var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
             var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
-            for(var i =0u; i < 300000u; i++){
+            for(var i =0u; i < arrayLength(&triangles); i++){
               workgroupBarrier();
               var curr_tri = triangles[i];
               if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
