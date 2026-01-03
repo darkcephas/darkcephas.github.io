@@ -126,8 +126,10 @@ function setup_compute_particles() {
             const wg_size = ${WORKGROUP_SIZE};
             // we have these 16x16 tiles and we have 16x16 total of them
             // for a 256 area.  65536 pixels 
-            for(var tile_x = 0u; tile_x < 16u; tile_x++){
-              for(var tile_y = 0u; tile_y < 16u; tile_y++){
+           var tile_x = wg_id.z / 16u;// for(var tile_x = 0u; tile_x < 16u; tile_x++)
+            {
+              var tile_y = wg_id.z % 16u;//for(var tile_y = 0u; tile_y < 16u; tile_y++)
+              {
             
                 workgroupBarrier();
 
@@ -135,7 +137,7 @@ function setup_compute_particles() {
                 var pix_y = tile_y*16u + wg_id.y * 256u;
                 if(pix_x >= u32(uni.canvas_size.x) || pix_y >= u32(uni.canvas_size.y)){  
                   // skip entire workgroup of work
-                  continue;
+                  return;
                 }
 
                 var intra_x = local_idx % 16u;
@@ -368,7 +370,7 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
 
   const dispatch_width =  Math.ceil(canvas_width / WORKGROUP_SIZE);
   const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 1);
+  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, ACCEL_DIV*ACCEL_DIV);
   computePass.end();
 
   if(false){
