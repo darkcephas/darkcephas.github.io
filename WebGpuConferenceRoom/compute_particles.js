@@ -44,9 +44,9 @@ function setup_compute_particles() {
                                                                   array<
                                                                    array<
                                                                     array< u32, ${ACCEL_MAX_CELL_COUNT}>
-                                                                      ,${ACCEL_DIV}>
-                                                                        ,${ACCEL_DIV}>
-                                                                         ,${ACCEL_DIV}> ;
+                                                                      ,${ACCEL_DIV_X}>
+                                                                        ,${ACCEL_DIV_Y}>
+                                                                         ,${ACCEL_DIV_Z}> ;
         @group(0) @binding(3) var<storage, read_write> dbg: array<f32>;
          @group(0) @binding(4) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
@@ -97,7 +97,7 @@ function setup_compute_particles() {
         fn per_cell_delta() -> vec3f {
             var tri_scene_min = uni.tri_pos_min.xyz;
             var tri_scene_max = uni.tri_pos_max.xyz;
-            var per_cell_delta = (tri_scene_max - tri_scene_min) / f32(${ACCEL_DIV});
+            var per_cell_delta = (tri_scene_max - tri_scene_min) / vec3f(${ACCEL_DIV_X}, ${ACCEL_DIV_Y}, ${ACCEL_DIV_Z});
             return per_cell_delta;
         }
 
@@ -174,7 +174,7 @@ function setup_compute_particles() {
                 workgroupBarrier();
                 var max_cell_count = 0u;
                 for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
-                    var max_accel_size = vec3i(${ACCEL_DIV});
+                    var max_accel_size = vec3i(${ACCEL_DIV_X}, ${ACCEL_DIV_Y},${ACCEL_DIV_Z});
                     //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
@@ -229,7 +229,7 @@ function setup_compute_particles() {
                 let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
                 if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
-                 // color_tri = vec3f(f32(max_cell_count)/2.0);   
+                // color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
                   textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
                 }
           
@@ -249,7 +249,6 @@ function setup_compute_particles() {
           // fast overlap test 
           if(all(tri_min <= box_max) && all(tri_max >= box_min)){
 
-
               // any vert inside
               // DDDDEBUG
               if(true){
@@ -265,6 +264,32 @@ function setup_compute_particles() {
                   return true;
                 }
               }
+
+
+              // Triangle pen box
+              if(true){
+                var vert_array = array( tri.pos0,  tri.pos1,  tri.pos2);
+                for(var line_sel = 0u; line_sel < 3u; line_sel++){
+                  var ray_orig = vert_array[line_sel];
+                  var ray_vec = vert_array[(line_sel+1) % 3u] - ray_orig;
+                    
+                  for(var max_min_sel = 0u; max_min_sel < 1u; max_min_sel++){
+                    var min_max_plane = select(box_min, box_max, vec3<bool>(max_min_sel == 1u));
+
+                    var t_each_plane = (min_max_plane - ray_orig)/ray_vec;
+                    
+                    for(var each_axis = 0u; each_axis < 3u; each_axis++){
+                        var test_p  = ray_orig + ray_vec * t_each_plane[each_axis];
+                        test_p[each_axis] = (box_min[each_axis] + box_max[each_axis]) * 0.5;
+                        if( all(box_min <= test_p) && all(test_p <= box_max)){
+                          return true;
+                        }
+                    }
+                  }
+                }
+              }
+
+
 
 
               // Triangle cut box. (any box wire cut triangle)
@@ -296,29 +321,6 @@ function setup_compute_particles() {
 
 
               
-              // Triangle pen box
-              if(true){
-                var vert_array = array( tri.pos0,  tri.pos1,  tri.pos2);
-                for(var line_sel = 0u; line_sel < 3u; line_sel++){
-                  var ray_orig = vert_array[line_sel];
-                  var ray_vec = vert_array[(line_sel+1) % 3u] - ray_orig;
-                    
-                  for(var max_min_sel = 0u; max_min_sel < 1u; max_min_sel++){
-                    var min_max_plane = select(box_min, box_max, vec3<bool>(max_min_sel == 1u));
-
-                    var t_each_plane = (min_max_plane - ray_orig)/ray_vec;
-                    
-                    for(var each_axis = 0u; each_axis < 3u; each_axis++){
-                        var test_p  = ray_orig + ray_vec * t_each_plane[each_axis];
-                        test_p[each_axis] = (box_min[each_axis] + box_max[each_axis]) * 0.5;
-                        if( all(box_min <= test_p) && all(test_p <= box_max)){
-                          return true;
-                        }
-                    }
-                  }
-                }
-              }
-
 
  
 
@@ -333,8 +335,7 @@ function setup_compute_particles() {
         @builtin(	workgroup_id) wg_id:vec3u) {
             // wg_id.x is the z divisions
             // local_index will be x and y divisions
-            var x = local_idx % ${ACCEL_DIV};
-            var y = local_idx / ${ACCEL_DIV};   // for ACCELL_DIV 64 we 2 bits from local index.
+            var x = local_idx % ${ACCEL_DIV_X};
             var z = wg_id.x;
 
             var tri_scene_min = uni.tri_pos_min.xyz;
@@ -346,10 +347,10 @@ function setup_compute_particles() {
 
 
             // arrayLength(&triangles)
-            for(var i =0u; i < 200000; i++){
+            for(var i = 0u; i < 200000; i++){
               var curr_tri = triangles[i];
               for(var j=0u; j < EXTRA_Y_DIM;j++){
-                   var y = (local_idx / ${ACCEL_DIV}) | (j<<2); 
+                var y = (local_idx / ${ACCEL_DIV_X}) | (j<<1); 
                 var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
                 var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
 
@@ -362,7 +363,8 @@ function setup_compute_particles() {
               }
             }
             for(var j=0u; j < EXTRA_Y_DIM;j++){
-              accelTri[z][y | (j<<2)][x][0] = count_cell[j];
+              var y = (local_idx / ${ACCEL_DIV_X}) | (j<<1); 
+              accelTri[z][y][x][0] = count_cell[j];
             }
         }
       `
@@ -450,7 +452,7 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
   if(step <= 1){
     computePass.setPipeline(accel_pipe);
     computePass.setBindGroup(0, compute_binding);
-    computePass.dispatchWorkgroups(ACCEL_DIV);
+    computePass.dispatchWorkgroups(ACCEL_DIV_Z);
   }
 
   computePass.setPipeline(draw_pipe);
@@ -459,7 +461,7 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
 
   const dispatch_width =  Math.ceil(canvas_width / WORKGROUP_SIZE);
   const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, ACCEL_DIV*ACCEL_DIV);
+  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 256);
   computePass.end();
 
 

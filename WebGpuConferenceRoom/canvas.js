@@ -5,7 +5,9 @@ const NUM_MICRO_SIMS = 256 * 256 * 2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 const WORLD_SCALE = 1000.0;
-const ACCEL_DIV = 64;
+const ACCEL_DIV_X = 128;
+const ACCEL_DIV_Y = 32;
+const ACCEL_DIV_Z = 64;
 const ACCEL_MAX_CELL_COUNT = 128;
 var canvas_width;
 var canvas_height;
@@ -119,7 +121,7 @@ window.onload = async function () {
   // Moderate size structure (16mb)
   // Lists of indices
   const size_int_to_byte = 4;
-  const accel_buff_size =  ACCEL_DIV * ACCEL_DIV * ACCEL_DIV * ACCEL_MAX_CELL_COUNT * size_int_to_byte;
+  const accel_buff_size =  ACCEL_DIV_X * ACCEL_DIV_Y * ACCEL_DIV_Z * ACCEL_MAX_CELL_COUNT * size_int_to_byte;
   triAccelBuffer = 
     device.createBuffer({
       label: "Triangle accel",
