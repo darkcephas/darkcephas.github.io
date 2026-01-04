@@ -5,8 +5,8 @@ const NUM_MICRO_SIMS = 256 * 256 * 2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
 const WORLD_SCALE = 1000.0;
-const ACCEL_DIV = 16;
-const ACCEL_MAX_CELL_COUNT = 1024;
+const ACCEL_DIV = 64;
+const ACCEL_MAX_CELL_COUNT = 128;
 var canvas_width;
 var canvas_height;
 var canvas_width_stride;
@@ -22,7 +22,7 @@ var empytBuffer;
 var time_t = 0.0;
 var depthTexture;
 var triAccelBuffer;
-var epsilon = 0.000000001;
+var epsilon2 = 0.000001;
 var tri_pos_min_x = 100000.0;
 var tri_pos_min_y = 100000.0;
 var tri_pos_min_z = 100000.0;
@@ -170,13 +170,13 @@ window.onload = async function () {
         var z = mesh_data[triDataInIdx++] * localScale;
        
         if(i!=3){
-          tri_pos_max_x = Math.max(x, tri_pos_max_x+epsilon);
-          tri_pos_max_y = Math.max(y, tri_pos_max_y+epsilon);
-          tri_pos_max_z = Math.max(z, tri_pos_max_z+epsilon);
+          tri_pos_max_x = Math.max(x, tri_pos_max_x);
+          tri_pos_max_y = Math.max(y, tri_pos_max_y);
+          tri_pos_max_z = Math.max(z, tri_pos_max_z);
 
-          tri_pos_min_x = Math.min(x, tri_pos_min_x-epsilon);
-          tri_pos_min_y = Math.min(y, tri_pos_min_y-epsilon);
-          tri_pos_min_z = Math.min(z, tri_pos_min_z-epsilon);
+          tri_pos_min_x = Math.min(x, tri_pos_min_x);
+          tri_pos_min_y = Math.min(y, tri_pos_min_y);
+          tri_pos_min_z = Math.min(z, tri_pos_min_z);
         }
 
         triStateArray[triDataPutIdx++] = x;
@@ -186,6 +186,14 @@ window.onload = async function () {
       triStateArray[triDataPutIdx++] = 0.0;
     }
   }
+
+  tri_pos_max_x += epsilon2;
+  tri_pos_max_y += epsilon2;
+  tri_pos_max_z += epsilon2;
+
+  tri_pos_min_x -= epsilon2;
+  tri_pos_min_y -= epsilon2;
+  tri_pos_min_z -= epsilon2;
 
   var dbg_zero_loc_x =  16.0 * (0.0-tri_pos_min_x)  / (tri_pos_max_x-tri_pos_min_x);
   var dbg_zero_loc_y =  16.0 * (0.2-tri_pos_min_y)  / (tri_pos_max_y-tri_pos_min_y);

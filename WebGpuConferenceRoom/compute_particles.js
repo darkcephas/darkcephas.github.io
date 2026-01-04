@@ -55,8 +55,7 @@ function setup_compute_particles() {
             ray_vector:vec3f,
             tri: Triangle) -> vec4f
         {
-            var epsilon = 0.00000001;
-
+            var epsilon = 0.000001;
             var edge1 = tri.pos1 - tri.pos0;
             var edge2 = tri.pos2 - tri.pos0;
             var ray_cross_e2 = cross(ray_vector, edge2);
@@ -126,9 +125,9 @@ function setup_compute_particles() {
             const wg_size = ${WORKGROUP_SIZE};
             // we have these 16x16 tiles and we have 16x16 total of them
             // for a 256 area.  65536 pixels 
-           var tile_x = wg_id.z / 16u;// for(var tile_x = 0u; tile_x < 16u; tile_x++)
+            var tile_x = wg_id.z % 16u;
             {
-              var tile_y = wg_id.z % 16u;//for(var tile_y = 0u; tile_y < 16u; tile_y++)
+              var tile_y = wg_id.z / 16u;
               {
             
                 workgroupBarrier();
@@ -147,8 +146,10 @@ function setup_compute_particles() {
 
                 var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
                 // cam transform haxz
+                homo_xy *= 0.7;// fov
                 homo_xy.y = - homo_xy.y;
-                var ray_orig = vec3(0,0.3, 0);
+                homo_xy.x = - homo_xy.x;
+                var ray_orig = vec3(0,0.25, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
                 let rot =-1.1+ uni.time_in*0.2;  
                 {
@@ -158,7 +159,7 @@ function setup_compute_particles() {
                 }
 
                 var min_t = 111111.0;
-                var color_tri = vec3f(0,0,0);
+                var color_tri = vec3f(0,0,0.1);
 
                 var cell_loc_f = pos_to_cell(ray_orig);
                 var cell_loc_i = vec3i(cell_loc_f);
@@ -170,20 +171,23 @@ function setup_compute_particles() {
 
                 remain_dir *= per_cell_delta(); 
                 workgroupBarrier();
-      
-                for(var finite_loop = 0u; finite_loop < 100; finite_loop++) {
+                var max_cell_count = 0u;
+                for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
                     var max_accel_size = vec3i(${ACCEL_DIV});
                     //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
                     }
                     var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
-                    for(var i = 0u; i < count_cell; i++) {
+                    max_cell_count = max(max_cell_count, count_cell);
+                    // cells start after zeroth
+                    for(var i = 1u; i < count_cell; i++) {
                         var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
                         var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
                         if(res.w > 0.0 && res.w <= min_t){
                             // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
-                            if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz)))){
+                           //if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
+                            {
                               min_t = res.w;
                               color_tri = curr_tri.col;
                             }
@@ -223,7 +227,7 @@ function setup_compute_particles() {
                 let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
                 if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
-                  //color_tri = vec3f(f32(num_tri_test));   
+                 // color_tri = vec3f(f32(max_cell_count)/2.0);   
                   textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
                 }
           
@@ -254,26 +258,34 @@ function setup_compute_particles() {
             // wg_id.x is the z divisions
             // local_index will be x and y divisions
             var x = local_idx % ${ACCEL_DIV};
-            var y = local_idx / ${ACCEL_DIV};
+            var y = local_idx / ${ACCEL_DIV};   // for ACCELL_DIV 64 we 2 bits from local index.
             var z = wg_id.x;
 
             var tri_scene_min = uni.tri_pos_min.xyz;
             var per_cell_delta = per_cell_delta();
             // Set zero triangles for cell
-            var count_cell = 0u;
+            const EXTRA_Y_DIM = 16u;
+            var count_cell : array<u32, EXTRA_Y_DIM>;
             // aabb
-            var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
-            var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
+
             for(var i =0u; i < arrayLength(&triangles); i++){
-              workgroupBarrier();
               var curr_tri = triangles[i];
-              if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
-                  count_cell++;
-                  accelTri[z][y][x][count_cell] = i; 
+              for(var j=0u; j < EXTRA_Y_DIM;j++){
+                   var y = (local_idx / ${ACCEL_DIV}) | (j<<2); 
+                var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
+                var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
+
+                if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
+                    if(count_cell[j] < 125){
+                      count_cell[j]++;
+                      accelTri[z][y][x][count_cell[j]] = i; 
+                    }
+                }
               }
-              workgroupBarrier();
             }
-            accelTri[z][y][x][0] = count_cell;
+            for(var j=0u; j < EXTRA_Y_DIM;j++){
+              accelTri[z][y | (j<<2)][x][0] = count_cell[j];
+            }
         }
       `
   });
@@ -357,10 +369,9 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
     { binding: 4, resource: context.getCurrentTexture().createView()},],
   });
 
-  if(step <= 3){
+  if(step <= 1){
     computePass.setPipeline(accel_pipe);
     computePass.setBindGroup(0, compute_binding);
-    // low utilization here but oh well.
     computePass.dispatchWorkgroups(ACCEL_DIV);
   }
 
