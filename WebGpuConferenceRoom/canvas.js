@@ -366,13 +366,11 @@ window.onload = async function () {
 
    var buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, encoder, step);
 
-
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
  
     if(false)
     {
-
       buff_ret.mapAsync(
         GPUMapMode.READ,
         0, // Offset
@@ -390,7 +388,7 @@ window.onload = async function () {
     }
 
     time_t = time_t + 0.016;
-    window.requestAnimationFrame(updateGrid);
+   window.requestAnimationFrame(updateGrid);
   }
   window.requestAnimationFrame(updateGrid);
 }

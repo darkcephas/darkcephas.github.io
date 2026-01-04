@@ -151,7 +151,7 @@ function setup_compute_particles() {
                 homo_xy.x = - homo_xy.x;
                 var ray_orig = vec3(0,0.25, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
-                let rot =-1.1+ uni.time_in*0.2;  
+                let rot = uni.time_in *0.1;  
                 {
                   let s_pos = ray_vec;
                   ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
@@ -181,7 +181,8 @@ function setup_compute_particles() {
                     var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
                     max_cell_count = max(max_cell_count, count_cell);
                     // cells start after zeroth
-                    for(var i = 1u; i < count_cell; i++) {
+
+                    for(var i = 1u; i < count_cell+1; i++) {
                         var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
                         var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
                         if(res.w > 0.0 && res.w <= min_t){
@@ -384,26 +385,27 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
   computePass.dispatchWorkgroups(dispatch_width, dispatch_height, ACCEL_DIV*ACCEL_DIV);
   computePass.end();
 
-  if(false){
+
+  var stagingBufferDebug = null;
   
-  const stagingBufferDebug = device.createBuffer({
-    label: "staging buff dbg",
-    size: kDebugArraySize,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  });
+  if(false){
+    device.createBuffer({
+      label: "staging buff dbg",
+      size: kDebugArraySize,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
 
 
-  wait_for_debug = true;
-  encoder.copyBufferToBuffer(
-    debuggingBufferStorage,
-    0, // Source offset
-    stagingBufferDebug,
-    0, // Destination offset
-    kDebugArraySize, 
-  );
-}
+    wait_for_debug = true;
+    encoder.copyBufferToBuffer(
+      debuggingBufferStorage,
+      0, // Source offset
+      stagingBufferDebug,
+      0, // Destination offset
+      kDebugArraySize, 
+    );
+  }
 
-
-  return null;
+  return stagingBufferDebug;
 }
 
