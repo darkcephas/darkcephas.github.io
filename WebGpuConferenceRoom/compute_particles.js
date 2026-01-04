@@ -151,7 +151,7 @@ function setup_compute_particles() {
                 homo_xy.x = - homo_xy.x;
                 var ray_orig = vec3(0,0.25, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
-                let rot = 0.0;//   uni.time_in *0.1;  
+                let rot =  uni.time_in *0.1;  
                 {
                   let s_pos = ray_vec;
                   ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
@@ -159,7 +159,7 @@ function setup_compute_particles() {
                 }
 
                 var min_t = 111111.0;
-                var color_tri = vec3f(0,0,0.1);
+                var color_tri = vec3f(0.2,0.2,0.0);
 
                 var cell_loc_f = pos_to_cell(ray_orig);
                 var cell_loc_i = vec3i(cell_loc_f);
@@ -248,9 +248,11 @@ function setup_compute_particles() {
 
           // fast overlap test 
           if(all(tri_min <= box_max) && all(tri_max >= box_min)){
+
+
               // any vert inside
               // DDDDEBUG
-              if(false){
+              if(true){
                 if(all(tri.pos0 <= box_max) && all(box_min <= tri.pos0)){
                   return true;
                 }
@@ -269,25 +271,24 @@ function setup_compute_particles() {
               if(true){
                 for(var proj_axis = 0u; proj_axis < 3u; proj_axis++) {
                   // other axis
-                  var rect_axis_a = (proj_axis + 1) %3u;
-                  var rect_axis_b = (proj_axis + 2) %3u;
+                  var rect_axis_a = (proj_axis + 1) % 3u;
+                  var rect_axis_b = (proj_axis + 2) % 3u;
                 
-                  for(var rect_alter_a = 0u; rect_alter_a < 1u; rect_alter_a++) {
-                    for(var rect_alter_b = 0u; rect_alter_b < 1u; rect_alter_b++) {
-                        var sel_start:vec3u;
-                        sel_start[proj_axis] = 0;
-                        sel_start[rect_axis_a] = rect_alter_a;
-                        sel_start[rect_axis_b] = rect_alter_b;
-                        var ray_orig = select(box_min, box_max, sel_start == vec3u(1u));
+                  for(var rect_alter_ab = 0u; rect_alter_ab < 4u; rect_alter_ab++)
+                  {
+                      var sel_start = vec3u(0,0,0);
+                      sel_start[proj_axis] = 0;
+                      sel_start[rect_axis_a] = rect_alter_ab % 2u;
+                      sel_start[rect_axis_b] = rect_alter_ab / 2u;
+                      var ray_orig = select(box_min, box_max, sel_start == vec3u(1u));
 
-                        var sel_end = sel_start;
-                        sel_end[proj_axis] = 1; // project as line to other side
-                        var ray_end = select(box_min, box_max, sel_end == vec3u(1u));
+                      var sel_end = sel_start;
+                      sel_end[proj_axis] = 1; // project as line to other side
+                      var ray_end = select(box_min, box_max, sel_end == vec3u(1u));
 
-                        var res = ray_intersects_triangle(ray_orig, ray_end - ray_orig, tri);
-                        if(res.w >=0.0 && res.w <= 1.0){
-                          return true;
-                        }
+                      var res = ray_intersects_triangle(ray_orig, ray_end - ray_orig, tri);
+                      if(res.w >=0.0 && res.w <= 1.0){
+                        return true;
                       }
                   }
                 }
@@ -296,7 +297,7 @@ function setup_compute_particles() {
 
               
               // Triangle pen box
-              if(false){
+              if(true){
                 var vert_array = array( tri.pos0,  tri.pos1,  tri.pos2);
                 for(var line_sel = 0u; line_sel < 3u; line_sel++){
                   var ray_orig = vert_array[line_sel];
@@ -345,7 +346,7 @@ function setup_compute_particles() {
 
 
             // arrayLength(&triangles)
-            for(var i =0u; i < 1000; i++){
+            for(var i =0u; i < 200000; i++){
               var curr_tri = triangles[i];
               for(var j=0u; j < EXTRA_Y_DIM;j++){
                    var y = (local_idx / ${ACCEL_DIV}) | (j<<2); 
