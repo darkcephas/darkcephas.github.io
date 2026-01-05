@@ -34,23 +34,28 @@ function setup_compute_particles() {
         tri_pos_max: vec4f
       };
 
+        const ACCEL_DIV_X =  ${ACCEL_DIV_X};
+        const ACCEL_DIV_Y =  ${ACCEL_DIV_Y};
+        const ACCEL_DIV_Z =  ${ACCEL_DIV_Z};
+        const MICRO_ACCEL_DIV = ${MICRO_ACCEL_DIV};
+
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
-        @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ${ACCEL_DIV_X}>, ${ACCEL_DIV_Z}>;
+        @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ACCEL_DIV_X>, ACCEL_DIV_Z>;
         @group(0) @binding(3) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
                                                                     array< atomic<u32>, ${MICRO_ACCEL_MAX_CELL_COUNT}>
-                                                                      ,${MICRO_ACCEL_DIV}>
-                                                                        ,${MICRO_ACCEL_DIV}>
-                                                                         ,${MICRO_ACCEL_DIV}> ;
+                                                                      ,MICRO_ACCEL_DIV>
+                                                                        ,MICRO_ACCEL_DIV>
+                                                                         ,MICRO_ACCEL_DIV> ;
         @group(0) @binding(4) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
                                                                     array< u32, ${ACCEL_MAX_CELL_COUNT}>
-                                                                      ,${ACCEL_DIV_X}>
-                                                                        ,${ACCEL_DIV_Y}>
-                                                                         ,${ACCEL_DIV_Z}> ;
+                                                                      ,ACCEL_DIV_X>
+                                                                        ,ACCEL_DIV_Y>
+                                                                         ,ACCEL_DIV_Z> ;
         @group(0) @binding(5) var<storage, read_write> dbg: array<f32>;
         @group(0) @binding(6) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
@@ -89,11 +94,11 @@ function setup_compute_particles() {
 
             if (t > epsilon) // ray intersection
             {
-                return  vec4f(ray_origin + ray_vector * t, t);
+              return  vec4f(ray_origin + ray_vector * t, t);
             }
             else // This means that there is a line intersection but not a ray intersection.
             {
-                return vec4f(0,0,0,-1);
+              return vec4f(0,0,0,-1);
             }
         }
 
@@ -101,7 +106,7 @@ function setup_compute_particles() {
         fn per_cell_delta() -> vec3f {
             var tri_scene_min = uni.tri_pos_min.xyz;
             var tri_scene_max = uni.tri_pos_max.xyz;
-            var per_cell_delta = (tri_scene_max - tri_scene_min) / vec3f(${ACCEL_DIV_X}, ${ACCEL_DIV_Y}, ${ACCEL_DIV_Z});
+            var per_cell_delta = (tri_scene_max - tri_scene_min) / vec3f(ACCEL_DIV_X, ${ACCEL_DIV_Y}, ${ACCEL_DIV_Z});
             return per_cell_delta;
         }
 
@@ -115,7 +120,7 @@ function setup_compute_particles() {
         fn pos_to_micro_cell( pos:vec3f) -> vec3f {
             var tri_scene_min = uni.tri_pos_min.xyz;
             var tri_scene_max = uni.tri_pos_max.xyz;
-            var micro_per_cell_delta = (tri_scene_max- tri_scene_min) / f32(${MICRO_ACCEL_DIV});
+            var micro_per_cell_delta = (tri_scene_max- tri_scene_min) / f32(MICRO_ACCEL_DIV);
             var cell_loc_f = (pos - uni.tri_pos_min.xyz) / micro_per_cell_delta;
             return cell_loc_f;
         }
@@ -186,7 +191,7 @@ function setup_compute_particles() {
                 remain_dir *= per_cell_delta(); 
                 var max_cell_count = 0u;
                 for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
-                    var max_accel_size = vec3i(${ACCEL_DIV_X}, ${ACCEL_DIV_Y},${ACCEL_DIV_Z});
+                    var max_accel_size = vec3i(ACCEL_DIV_X, ${ACCEL_DIV_Y},${ACCEL_DIV_Z});
                     //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
@@ -197,7 +202,7 @@ function setup_compute_particles() {
                     max_cell_count = max(max_cell_count, count_cell);
                     // cells start after zeroth
 
-                    for(var i = 1u; i < count_cell+1; i++) {
+                    for(var i = 1u; i < count_cell + 1; i++) {
                         var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
                         var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
                         if(res.w > 0.0 && res.w <= min_t){
@@ -339,29 +344,29 @@ function setup_compute_particles() {
 
         // 4k wg memory
         var<workgroup> wg_cell_count :   array<array<array<atomic<u32>, 
-                                              ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV}>,
-                                              ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV}>,
-                                              ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV}> ;
+                                              ACCEL_DIV_X / MICRO_ACCEL_DIV>,
+                                              ACCEL_DIV_Y / MICRO_ACCEL_DIV>,
+                                              ACCEL_DIV_Z / MICRO_ACCEL_DIV> ;
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn accelmain(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            var tri_scene_min = uni.tri_pos_min.xyz;
-            var per_cell_delta = per_cell_delta();
+            let tri_scene_min = uni.tri_pos_min.xyz;
+            let per_cell_delta = per_cell_delta();
             // The microAccel has tri list at a coarse grained level
-            var total_count = atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][0]);
+            let total_count = atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][0]);
             var micro_tri_idx_thread = local_idx;
 
             while(micro_tri_idx_thread < total_count) {
               // Each thread loads a different triangle. +1 because of silly counter at start
               var real_tri_index =  atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][micro_tri_idx_thread + 1]); 
               var curr_tri = triangles[real_tri_index];
-              for(var xx = 0u; xx < u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} ); xx++){
-                for(var yy = 0u; yy < u32( ${ACCEL_DIV_Y} /  ${MICRO_ACCEL_DIV} ); yy++){
-                  for(var zz = 0u; zz < u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} ); zz++){
-                    var x = xx +  wg_id.x * u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} );
-                    var y = yy +  wg_id.y * u32( ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV} );
-                    var z = zz +  wg_id.z * u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} );
+              for(var xx = 0u; xx < u32( ACCEL_DIV_X / MICRO_ACCEL_DIV ); xx++){
+                for(var yy = 0u; yy < u32( ACCEL_DIV_Y /  MICRO_ACCEL_DIV ); yy++){
+                  for(var zz = 0u; zz < u32( ACCEL_DIV_Z / MICRO_ACCEL_DIV ); zz++){
+                    var x = xx +  wg_id.x * u32( ACCEL_DIV_X / MICRO_ACCEL_DIV );
+                    var y = yy +  wg_id.y * u32( ACCEL_DIV_Y / MICRO_ACCEL_DIV );
+                    var z = zz +  wg_id.z * u32( ACCEL_DIV_Z / MICRO_ACCEL_DIV );
                     var xyz = vec3f(f32(x), f32(y), f32(z));
                     var cell_min = per_cell_delta * xyz  + tri_scene_min;
                     var cell_max = per_cell_delta * (xyz + vec3f(1.0)) + tri_scene_min;
@@ -380,41 +385,41 @@ function setup_compute_particles() {
 
             workgroupBarrier(); // THIS IS NO JOKE
             // Use 1 thread to assign count to first index. (no contention)
-            if(local_idx == 0){
-              for(var xx = 0u; xx < u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} ); xx++){
-                for(var yy = 0u; yy < u32( ${ACCEL_DIV_Y} /  ${MICRO_ACCEL_DIV} ); yy++){
-                  for(var zz = 0u; zz < u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} ); zz++){
-                      var x = xx +  wg_id.x * u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} );
-                      var y = yy +  wg_id.y * u32( ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV} );
-                      var z = zz +  wg_id.z * u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} );
+            if(local_idx == 0) {
+              for(var xx = 0u; xx < u32( ACCEL_DIV_X / MICRO_ACCEL_DIV ); xx++) {
+                for(var yy = 0u; yy < u32( ACCEL_DIV_Y /  MICRO_ACCEL_DIV ); yy++) {
+                  for(var zz = 0u; zz < u32( ACCEL_DIV_Z / MICRO_ACCEL_DIV ); zz++) {
+                      var x = xx +  wg_id.x * u32( ACCEL_DIV_X / MICRO_ACCEL_DIV );
+                      var y = yy +  wg_id.y * u32( ACCEL_DIV_Y / MICRO_ACCEL_DIV );
+                      var z = zz +  wg_id.z * u32( ACCEL_DIV_Z / MICRO_ACCEL_DIV );
                       let temp_count = atomicLoad(&wg_cell_count[zz][yy][xx]); ;
                       accelTri[z][y][x][0] = temp_count;
                       if(temp_count == 0){
                         // bit mask to say we are empty (again single threaded)
                         emptyCellAccel[z][x] =  emptyCellAccel[z][x] | (1u<<y); 
                       }
-                    }
                   }
                 }
+              }
             }
         }
 
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn microAccelmain(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            var tri_idx = local_idx + wg_id.x * ${WORKGROUP_SIZE};
+            let tri_idx = local_idx + wg_id.x * ${WORKGROUP_SIZE};
             if(tri_idx >=  arrayLength(&triangles)){
               // out of bounds. Expected.
               return;
             }
 
-            var curr_tri = triangles[tri_idx];
-            var tri_scene_min = uni.tri_pos_min.xyz;
-            var tri_scene_max = uni.tri_pos_max.xyz;
-            var per_cell_delta = (tri_scene_max- tri_scene_min) / f32(${MICRO_ACCEL_DIV});
-            for(var x = 0u; x < u32(${MICRO_ACCEL_DIV}); x++){
-              for(var y = 0u; y < u32(${MICRO_ACCEL_DIV}); y++){
-                for(var z = 0u; z < u32(${MICRO_ACCEL_DIV}); z++){
+            let curr_tri = triangles[tri_idx];
+            let tri_scene_min = uni.tri_pos_min.xyz;
+            let tri_scene_max = uni.tri_pos_max.xyz;
+            let per_cell_delta = (tri_scene_max- tri_scene_min) / f32(MICRO_ACCEL_DIV);
+            for(var x = 0u; x < u32(MICRO_ACCEL_DIV); x++){
+              for(var y = 0u; y < u32(MICRO_ACCEL_DIV); y++){
+                for(var z = 0u; z < u32(MICRO_ACCEL_DIV); z++){
                 var xyz = vec3f(f32(x),f32(y),f32(z));
                 var cell_min = per_cell_delta * xyz  + tri_scene_min;
                 var cell_max = per_cell_delta * (xyz + vec3f(1.0)) + tri_scene_min;
@@ -422,7 +427,7 @@ function setup_compute_particles() {
                 if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
                     var unique_idx = atomicAdd(&microAccel[z][y][x][0], 1);
                     if(unique_idx < (64*1024-10)){// saftey check
-                     atomicStore(&microAccel[z][y][x][unique_idx + 1], tri_idx); 
+                      atomicStore(&microAccel[z][y][x][unique_idx + 1], tri_idx); 
                     }
                 }
               }
