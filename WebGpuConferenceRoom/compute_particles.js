@@ -1,7 +1,3 @@
-
-
-
-const DELTA_T = 0.0000003;
 var compute_pipe;
 var compute_binding;
 var bindGroupLayout;
@@ -40,15 +36,22 @@ function setup_compute_particles() {
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
-        @group(0) @binding(2) var<storage, read_write> accelTri: array<
+        @group(0) @binding(2) var<storage, read_write> microAccel: array<
+                                                                  array<
+                                                                   array<
+                                                                    array< atomic<u32>, ${MICRO_ACCEL_MAX_CELL_COUNT}>
+                                                                      ,${MICRO_ACCEL_DIV}>
+                                                                        ,${MICRO_ACCEL_DIV}>
+                                                                         ,${MICRO_ACCEL_DIV}> ;
+        @group(0) @binding(3) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
                                                                     array< u32, ${ACCEL_MAX_CELL_COUNT}>
                                                                       ,${ACCEL_DIV_X}>
                                                                         ,${ACCEL_DIV_Y}>
                                                                          ,${ACCEL_DIV_Z}> ;
-        @group(0) @binding(3) var<storage, read_write> dbg: array<f32>;
-         @group(0) @binding(4) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+        @group(0) @binding(4) var<storage, read_write> dbg: array<f32>;
+        @group(0) @binding(5) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -106,6 +109,15 @@ function setup_compute_particles() {
             return cell_loc_f;
         }
 
+
+          
+        fn pos_to_micro_cell( pos:vec3f) -> vec3f {
+            var tri_scene_min = uni.tri_pos_min.xyz;
+            var tri_scene_max = uni.tri_pos_max.xyz;
+            var micro_per_cell_delta = (tri_scene_max- tri_scene_min) / f32(${MICRO_ACCEL_DIV});
+            var cell_loc_f = (pos - uni.tri_pos_min.xyz) / micro_per_cell_delta;
+            return cell_loc_f;
+        }
 
         var<workgroup> dbgIdx:u32;
         fn dbgOut(val:f32){
@@ -246,7 +258,7 @@ function setup_compute_particles() {
 
           // fast overlap test 
           if(all(tri_min <= box_max) && all(tri_max >= box_min)){
-
+       
               // any vert inside
               // DDDDEBUG
               if(true){
@@ -264,7 +276,7 @@ function setup_compute_particles() {
               }
 
 
-              // Triangle pen box
+              // Triangle penetrates box (line test)
               if(true){
                 var vert_array = array( tri.pos0,  tri.pos1,  tri.pos2);
                 for(var line_sel = 0u; line_sel < 3u; line_sel++){
@@ -286,9 +298,6 @@ function setup_compute_particles() {
                   }
                 }
               }
-
-
-
 
               // Triangle cut box. (any box wire cut triangle)
               if(true){
@@ -317,54 +326,112 @@ function setup_compute_particles() {
                 }
               }
 
-
-              
-
- 
-
               return false;
           }
 
           return false;
         }
 
+
+        // 4k wg memory
+        var<workgroup> wg_cell_count :   array<array<array<atomic<u32>, 
+                                              ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV}>,
+                                              ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV}>,
+                                              ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV}> ;
+
         @compute @workgroup_size(${WORKGROUP_SIZE})
         fn accelmain(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            // wg_id.x is the z divisions
-            // local_index will be x and y divisions
-            var x = local_idx % ${ACCEL_DIV_X};
-            var z = wg_id.x;
-
             var tri_scene_min = uni.tri_pos_min.xyz;
             var per_cell_delta = per_cell_delta();
-            // Set zero triangles for cell
-            const EXTRA_Y_DIM = 16u;
-            var count_cell : array<u32, EXTRA_Y_DIM>;
-            // aabb
+            // The microAccel has tri list at a coarse grained level
+            var total_count = atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][0]);
+            var micro_tri_idx_thread = local_idx;
 
+            if(local_idx == 0 && wg_id.x == 0 && wg_id.y == 0 && wg_id.z == 0){
+              dbgOut(-777.0);
+              for(var xx = 0u; xx < u32( ${MICRO_ACCEL_DIV} ); xx++){
+                for(var yy = 0u; yy < u32(  ${MICRO_ACCEL_DIV} ); yy++){
+                  for(var zz = 0u; zz < u32(  ${MICRO_ACCEL_DIV} ); zz++){
+                      var total_count = atomicLoad(&microAccel[zz][yy][xx][0]);
+                        dbgOut(f32(total_count));
+                    }
+                  }
+                }
+              dbgOut(-555.0);
+            }
 
-            // arrayLength(&triangles)
-            for(var i = 0u; i < 200000; i++){
-              var curr_tri = triangles[i];
-              for(var j=0u; j < EXTRA_Y_DIM;j++){
-                var y = (local_idx / ${ACCEL_DIV_X}) | (j<<1); 
+            while(micro_tri_idx_thread < total_count) {
+              // Each thread loads a different triangle. +1 because of silly counter at start
+              var real_tri_index =  atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][micro_tri_idx_thread + 1]); 
+              var curr_tri = triangles[real_tri_index];
+              for(var xx = 0u; xx < u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} ); xx++){
+                for(var yy = 0u; yy < u32( ${ACCEL_DIV_Y} /  ${MICRO_ACCEL_DIV} ); yy++){
+                  for(var zz = 0u; zz < u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} ); zz++){
+                    var x = xx +  wg_id.x * u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} );
+                    var y = yy +  wg_id.y * u32( ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV} );
+                    var z = zz +  wg_id.z * u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} );
+                    var xyz = vec3f(f32(x), f32(y), f32(z));
+                    var cell_min = per_cell_delta * xyz  + tri_scene_min;
+                    var cell_max = per_cell_delta * (xyz + vec3f(1.0)) + tri_scene_min;
+
+                    if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
+                        var add_slot_idx = atomicAdd(&wg_cell_count[zz][yy][xx], 1);
+                        if(add_slot_idx < 125) {
+                          accelTri[z][y][x][add_slot_idx + 1] = real_tri_index; 
+                        }
+                    }
+                  }
+                }
+              }
+              micro_tri_idx_thread += ${WORKGROUP_SIZE};// next batch of triangles
+            }
+
+            workgroupBarrier();
+            // Use 1 thread to assign count to first index.
+            if(local_idx == 0){
+              for(var xx = 0u; xx < u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} ); xx++){
+                for(var yy = 0u; yy < u32( ${ACCEL_DIV_Y} /  ${MICRO_ACCEL_DIV} ); yy++){
+                  for(var zz = 0u; zz < u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} ); zz++){
+                      var x = xx +  wg_id.x * u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} );
+                      var y = yy +  wg_id.y * u32( ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV} );
+                      var z = zz +  wg_id.z * u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} );
+                      accelTri[z][y][x][0] = atomicLoad(&wg_cell_count[zz][yy][xx]); 
+                    }
+                  }
+                }
+            }
+        }
+
+        @compute @workgroup_size(${WORKGROUP_SIZE})
+        fn microAccelmain(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u) {
+            var tri_idx = local_idx + wg_id.x * ${WORKGROUP_SIZE};
+            if(tri_idx >=  arrayLength(&triangles)){
+              // out of bounds. Expected.
+              return;
+            }
+
+            var curr_tri = triangles[tri_idx];
+            var tri_scene_min = uni.tri_pos_min.xyz;
+            var tri_scene_max = uni.tri_pos_max.xyz;
+            var per_cell_delta = (tri_scene_max- tri_scene_min) / f32(${MICRO_ACCEL_DIV});
+            for(var x = 0u; x < u32(${MICRO_ACCEL_DIV}); x++){
+              for(var y = 0u; y < u32(${MICRO_ACCEL_DIV}); y++){
+                for(var z = 0u; z < u32(${MICRO_ACCEL_DIV}); z++){
                 var xyz = vec3f(f32(x),f32(y),f32(z));
                 var cell_min = per_cell_delta * xyz  + tri_scene_min;
                 var cell_max = per_cell_delta * (xyz + vec3f(1.0)) + tri_scene_min;
 
                 if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
-                    if(count_cell[j] < 125){
-                      count_cell[j]++;
-                      accelTri[z][y][x][count_cell[j]] = i; 
+                    var unique_idx = atomicAdd(&microAccel[z][y][x][0], 1);
+                    if(unique_idx < (64*1024-10)){// saftey check
+                     atomicStore(&microAccel[z][y][x][unique_idx + 1], tri_idx); 
                     }
                 }
               }
             }
-            for(var j=0u; j < EXTRA_Y_DIM;j++){
-              var y = (local_idx / ${ACCEL_DIV_X}) | (j<<1); 
-              accelTri[z][y][x][0] = count_cell[j];
-            }
+           }
         }
       `
   });
@@ -388,8 +455,13 @@ function setup_compute_particles() {
       binding: 3,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
-    },{
+    }, 
+    {
       binding: 4,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    },{
+      binding: 5,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
@@ -404,7 +476,7 @@ function setup_compute_particles() {
 
 
   draw_pipe = device.createComputePipeline({
-    label: "Draw",
+    label: "main",
     layout: pipelineLayout,
     compute: {
       module: drawShaderModule,
@@ -413,7 +485,7 @@ function setup_compute_particles() {
   });
 
   accel_pipe = device.createComputePipeline({
-    label: "Draw",
+    label: "accelmain",
     layout: pipelineLayout,
     compute: {
       module: drawShaderModule,
@@ -421,11 +493,18 @@ function setup_compute_particles() {
     }
   });
 
-
+  micro_accel_pipe = device.createComputePipeline({
+    label: "microAccelmain",
+    layout: pipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "microAccelmain"
+    }
+  });
 
 }
 
-function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, step) {
+function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAccelBuffer, numTriangles, encoder, step) {
  // encoder.clearBuffer(vizBufferStorage);
   const computePass = encoder.beginComputePass();
   compute_binding = device.createBindGroup({
@@ -439,19 +518,29 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
       resource: { buffer: triStorageBuffer },
     }, {
       binding: 2,
+      resource: { buffer: microTriAccelBuffer },
+    }, 
+    {
+      binding: 3,
       resource: { buffer: triAccelBuffer },
     },
     {
-      binding: 3,
+      binding: 4,
       resource: { buffer: debuggingBufferStorage },
     },
-    { binding: 4, resource: context.getCurrentTexture().createView()},],
+    { binding: 5, resource: context.getCurrentTexture().createView()},
+    ],
   });
 
   if(step <= 1){
+    computePass.setPipeline(micro_accel_pipe);
+    computePass.setBindGroup(0, compute_binding);
+    var num_wg = Math.ceil(numTriangles/ WORKGROUP_SIZE);
+    computePass.dispatchWorkgroups(num_wg);
+
     computePass.setPipeline(accel_pipe);
     computePass.setBindGroup(0, compute_binding);
-    computePass.dispatchWorkgroups(ACCEL_DIV_Z);
+    computePass.dispatchWorkgroups(MICRO_ACCEL_DIV, MICRO_ACCEL_DIV, MICRO_ACCEL_DIV);
   }
 
   computePass.setPipeline(draw_pipe);
@@ -466,13 +555,12 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, encoder, ste
 
   var stagingBufferDebug = null;
   
-  if(false){
-    device.createBuffer({
+  if(debug_mode){
+    stagingBufferDebug = device.createBuffer({
       label: "staging buff dbg",
       size: kDebugArraySize,
       usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-
 
     wait_for_debug = true;
     encoder.copyBufferToBuffer(

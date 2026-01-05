@@ -1,6 +1,12 @@
+"use strict";
+
 var device;
 var canvasformat;
 var context;
+var debug_mode = false;
+var raster_mode = false;
+var microTriAccelBuffer;
+
 const NUM_MICRO_SIMS = 256 * 256 * 2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
@@ -9,6 +15,8 @@ const ACCEL_DIV_X = 128;
 const ACCEL_DIV_Y = 32;
 const ACCEL_DIV_Z = 64;
 const ACCEL_MAX_CELL_COUNT = 128;
+const MICRO_ACCEL_DIV = 8;
+const MICRO_ACCEL_MAX_CELL_COUNT = 1024*64; // The hope here is that this works :) 300/512
 var canvas_width;
 var canvas_height;
 var canvas_width_stride;
@@ -31,7 +39,7 @@ var tri_pos_min_z = 100000.0;
 var tri_pos_max_x = -100000.0;
 var tri_pos_max_y = -100000.0;
 var tri_pos_max_z = -100000.0;
-"use strict";
+
 
 
 function UpdateUniforms() {
@@ -128,6 +136,14 @@ window.onload = async function () {
       size: accel_buff_size,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+
+  const micro_accel_buff_size =  MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_MAX_CELL_COUNT * size_int_to_byte;
+    microTriAccelBuffer = 
+      device.createBuffer({
+        label: "Micro Triangle accel",
+        size: micro_accel_buff_size,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
 
 
   context = canvas.getContext("webgpu");
@@ -256,7 +272,7 @@ window.onload = async function () {
         //var test_array= array(vec3f(0,0,.1), vec3f(1,0,.1),vec3f(0,1,.1));
         //pos = test_array[input.instance % 3];
         let s_pos = pos;
-        let rot = sin(canvas_size.w*0.2)*1.71;
+        let rot = canvas_size.w*0.2*1.71;
         pos.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
         pos.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
         const zNear = 0.05;
@@ -362,16 +378,20 @@ window.onload = async function () {
 
     pass.setPipeline(renderPipe);
     pass.setBindGroup(0, graphicsBindGroup); // Updated!
-   // pass.draw(numTriangles*3);
+    if(raster_mode){
+      pass.draw(numTriangles*3);
+    }
     pass.end();
 
 
-   var buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, encoder, step);
-
+   var buff_ret = null;
+   if(!raster_mode){
+    buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, microTriAccelBuffer, numTriangles, encoder, step);
+   }
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
  
-    if(false)
+    if(debug_mode)
     {
       buff_ret.mapAsync(
         GPUMapMode.READ,
@@ -390,7 +410,9 @@ window.onload = async function () {
     }
 
     time_t = time_t + 0.016;
-   window.requestAnimationFrame(updateGrid);
+    if(!debug_mode){
+      window.requestAnimationFrame(updateGrid);
+    }
   }
   window.requestAnimationFrame(updateGrid);
 }
