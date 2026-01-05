@@ -36,22 +36,23 @@ function setup_compute_particles() {
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
-        @group(0) @binding(2) var<storage, read_write> microAccel: array<
+        @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ${ACCEL_DIV_X}>, ${ACCEL_DIV_Z}>;
+        @group(0) @binding(3) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
                                                                     array< atomic<u32>, ${MICRO_ACCEL_MAX_CELL_COUNT}>
                                                                       ,${MICRO_ACCEL_DIV}>
                                                                         ,${MICRO_ACCEL_DIV}>
                                                                          ,${MICRO_ACCEL_DIV}> ;
-        @group(0) @binding(3) var<storage, read_write> accelTri: array<
+        @group(0) @binding(4) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
                                                                     array< u32, ${ACCEL_MAX_CELL_COUNT}>
                                                                       ,${ACCEL_DIV_X}>
                                                                         ,${ACCEL_DIV_Y}>
                                                                          ,${ACCEL_DIV_Z}> ;
-        @group(0) @binding(4) var<storage, read_write> dbg: array<f32>;
-        @group(0) @binding(5) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+        @group(0) @binding(5) var<storage, read_write> dbg: array<f32>;
+        @group(0) @binding(6) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -239,7 +240,7 @@ function setup_compute_particles() {
                 let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
                 if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
-                // color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
+                  //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
                   textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
                 }
           
@@ -348,19 +349,6 @@ function setup_compute_particles() {
             var total_count = atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][0]);
             var micro_tri_idx_thread = local_idx;
 
-            if(local_idx == 0 && wg_id.x == 0 && wg_id.y == 0 && wg_id.z == 0){
-              dbgOut(-777.0);
-              for(var xx = 0u; xx < u32( ${MICRO_ACCEL_DIV} ); xx++){
-                for(var yy = 0u; yy < u32(  ${MICRO_ACCEL_DIV} ); yy++){
-                  for(var zz = 0u; zz < u32(  ${MICRO_ACCEL_DIV} ); zz++){
-                      var total_count = atomicLoad(&microAccel[zz][yy][xx][0]);
-                        dbgOut(f32(total_count));
-                    }
-                  }
-                }
-              dbgOut(-555.0);
-            }
-
             while(micro_tri_idx_thread < total_count) {
               // Each thread loads a different triangle. +1 because of silly counter at start
               var real_tri_index =  atomicLoad(&microAccel[wg_id.z][wg_id.y][wg_id.x][micro_tri_idx_thread + 1]); 
@@ -387,8 +375,8 @@ function setup_compute_particles() {
               micro_tri_idx_thread += ${WORKGROUP_SIZE};// next batch of triangles
             }
 
-            workgroupBarrier();
-            // Use 1 thread to assign count to first index.
+            workgroupBarrier(); // THIS IS NO JOKE
+            // Use 1 thread to assign count to first index. (no contention)
             if(local_idx == 0){
               for(var xx = 0u; xx < u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} ); xx++){
                 for(var yy = 0u; yy < u32( ${ACCEL_DIV_Y} /  ${MICRO_ACCEL_DIV} ); yy++){
@@ -396,7 +384,12 @@ function setup_compute_particles() {
                       var x = xx +  wg_id.x * u32( ${ACCEL_DIV_X} / ${MICRO_ACCEL_DIV} );
                       var y = yy +  wg_id.y * u32( ${ACCEL_DIV_Y} / ${MICRO_ACCEL_DIV} );
                       var z = zz +  wg_id.z * u32( ${ACCEL_DIV_Z} / ${MICRO_ACCEL_DIV} );
-                      accelTri[z][y][x][0] = atomicLoad(&wg_cell_count[zz][yy][xx]); 
+                      let temp_count = atomicLoad(&wg_cell_count[zz][yy][xx]); ;
+                      accelTri[z][y][x][0] = temp_count;
+                      if(temp_count == 0){
+                        // bit mask to say we are empty (again single threaded)
+                        emptyCellAccel[z][x] =  emptyCellAccel[z][x] | (1u<<y); 
+                      }
                     }
                   }
                 }
@@ -460,8 +453,14 @@ function setup_compute_particles() {
       binding: 4,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
-    },{
+    },
+    {
       binding: 5,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    },
+    {
+      binding: 6,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
@@ -504,7 +503,7 @@ function setup_compute_particles() {
 
 }
 
-function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAccelBuffer, numTriangles, encoder, step) {
+function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAccelBuffer, emptyCellAccelBuff, numTriangles, encoder, step) {
  // encoder.clearBuffer(vizBufferStorage);
   const computePass = encoder.beginComputePass();
   compute_binding = device.createBindGroup({
@@ -516,19 +515,24 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAcce
     }, {
       binding: 1, 
       resource: { buffer: triStorageBuffer },
-    }, {
+    }, 
+    {
       binding: 2,
+      resource: { buffer: emptyCellAccelBuff },
+    },
+    {
+      binding: 3,
       resource: { buffer: microTriAccelBuffer },
     }, 
     {
-      binding: 3,
+      binding: 4,
       resource: { buffer: triAccelBuffer },
     },
     {
-      binding: 4,
+      binding: 5,
       resource: { buffer: debuggingBufferStorage },
     },
-    { binding: 5, resource: context.getCurrentTexture().createView()},
+    { binding: 6, resource: context.getCurrentTexture().createView()},
     ],
   });
 

@@ -6,6 +6,7 @@ var context;
 var debug_mode = false;
 var raster_mode = false;
 var microTriAccelBuffer;
+var emptyCellAccelBuff;
 
 const NUM_MICRO_SIMS = 256 * 256 * 2;
 const NUM_PARTICLES_PER_MICRO = 3; // 3 body
@@ -145,6 +146,18 @@ window.onload = async function () {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
+
+  if(ACCEL_DIV_Y != 32){
+    console.log("we assume this for bit packing");
+  }
+  const empty_cell_accel_buff_size = ACCEL_DIV_Z *  ACCEL_DIV_X * size_int_to_byte;
+  emptyCellAccelBuff = 
+        device.createBuffer({
+          label: "Empty cell accel",
+          size: empty_cell_accel_buff_size,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+  
 
   context = canvas.getContext("webgpu");
  
@@ -386,7 +399,7 @@ window.onload = async function () {
 
    var buff_ret = null;
    if(!raster_mode){
-    buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, microTriAccelBuffer, numTriangles, encoder, step);
+    buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, microTriAccelBuffer,emptyCellAccelBuff , numTriangles, encoder, step);
    }
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);
