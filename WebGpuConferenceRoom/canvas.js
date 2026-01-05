@@ -17,7 +17,8 @@ const MICRO_ACCEL_DIV = 8;
 const MICRO_ACCEL_MAX_CELL_COUNT = 1024*64; // The hope here is that this works :) 300/512
 var canvas_width;
 var canvas_height;
-var canvas_width_stride;
+var canvas_width_block;
+var canvas_height_block;
 var bindGroupLayout;
 var uniformBuffer;
 var simulationBindGroups;
@@ -40,7 +41,7 @@ var tri_pos_max_z = -BIG_NUM;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
-  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_stride, time_t,
+  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
                                         tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0 ,
                                         tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
@@ -67,10 +68,11 @@ window.onload = async function () {
     canvas.height = window.innerHeight;
     canvas_width = canvas.width;
     canvas_height = canvas.height;
-    canvas_width_stride = WORKGROUP_SIZE * Math.ceil(canvas_width / WORKGROUP_SIZE);
-
-    const numVizBufferElementBytes = 4 * 4;
-    const numVizBufferTotal = numVizBufferElementBytes * canvas_width_stride * canvas_height;
+    canvas_width_block  =  Math.ceil(canvas_width / 16);
+    canvas_height_block  =  Math.ceil(canvas_height / 16);
+    var block_size = 16*16;
+    const numVizBufferElementBytes = 16*4;
+    const numVizBufferTotal = numVizBufferElementBytes * canvas_width_block * canvas_height_block * block_size;
     vizBufferStorage =
       device.createBuffer({
         label: "Viz buffer",
@@ -386,7 +388,7 @@ window.onload = async function () {
 
    var buff_ret = null;
    if(!raster_mode){
-    buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, microTriAccelBuffer,emptyCellAccelBuff , numTriangles, encoder, step);
+    buff_ret = update_compute_particles(triStateStorage, triAccelBuffer, microTriAccelBuffer,emptyCellAccelBuff,vizBufferStorage , numTriangles, encoder, step);
    }
     const commandBuffer = encoder.finish();
     device.queue.submit([commandBuffer]);

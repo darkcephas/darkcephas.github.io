@@ -1,5 +1,6 @@
 var compute_pipe;
 var compute_binding;
+var ray_gen_pipe;
 var bindGroupLayout;
 var debuggingBufferStorage;
 var kDebugArraySize = 1024*4*1024;
@@ -34,6 +35,15 @@ function setup_compute_particles() {
         tri_pos_max: vec4f
       };
 
+
+        struct Ray {
+          ray_orig:vec3f, px:u32,
+          ray_vec:vec3f, py:u32,
+          normal:vec3f, dist_t:f32,
+          no_used:vec3f, tri_idx:u32,
+        };
+
+
         const ACCEL_DIV_X =  ${ACCEL_DIV_X};
         const ACCEL_DIV_Y =  ${ACCEL_DIV_Y};
         const ACCEL_DIV_Z =  ${ACCEL_DIV_Z};
@@ -45,22 +55,23 @@ function setup_compute_particles() {
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
         @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ACCEL_DIV_X>, ACCEL_DIV_Z>;
-        @group(0) @binding(3) var<storage, read_write> microAccel: array<
+        @group(0) @binding(3) var<storage, read_write> rayInOut: array<array<Ray, WORKGROUP_SIZE>>;
+        @group(0) @binding(4) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
                                                                     array< atomic<u32>, MICRO_ACCEL_MAX_CELL_COUNT>
                                                                       ,MICRO_ACCEL_DIV>
                                                                         ,MICRO_ACCEL_DIV>
                                                                          ,MICRO_ACCEL_DIV> ;
-        @group(0) @binding(4) var<storage, read_write> accelTri: array<
+        @group(0) @binding(5) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
                                                                     array< u32, ACCEL_MAX_CELL_COUNT>
                                                                       ,ACCEL_DIV_X>
                                                                         ,ACCEL_DIV_Y>
                                                                          ,ACCEL_DIV_Z> ;
-        @group(0) @binding(5) var<storage, read_write> dbg: array<f32>;
-        @group(0) @binding(6) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+        @group(0) @binding(6) var<storage, read_write> dbg: array<f32>;
+        @group(0) @binding(7) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -141,124 +152,119 @@ function setup_compute_particles() {
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
-        fn main(  @builtin(local_invocation_index) local_idx:u32,
-        @builtin(	workgroup_id) wg_id:vec3u) {
-            const wg_size = WORKGROUP_SIZE;
-            // we have these 16x16 tiles and we have 16x16 total of them
-            // for a 256 area.  65536 pixels 
-            var tile_x = wg_id.z % 16u;
+        fn mainRayGen(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u ) {
+            var tile_x = local_idx % 16u;
+            var tile_y = local_idx / 16u;
+ 
+            var pix_x = tile_x + wg_id.x * 16u;
+            var pix_y = tile_y + wg_id.y * 16u;
+
+            var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
+            // cam transform haxz
+            homo_xy *= 0.7;// fov
+            homo_xy.y = - homo_xy.y;
+            homo_xy.x = - homo_xy.x;
+            var ray_orig = vec3(0.4,0.3, 0);
+            var ray_vec = normalize(vec3f(homo_xy, 1.0));
+            let rot =  uni.time_in *0.1-1;  
             {
-              var tile_y = wg_id.z / 16u;
-              {
-            
-                workgroupBarrier();
-
-                var pix_x = tile_x*16u + wg_id.x * 256u;
-                var pix_y = tile_y*16u + wg_id.y * 256u;
-                if(pix_x >= u32(uni.canvas_size.x) || pix_y >= u32(uni.canvas_size.y)){  
-                  // skip entire workgroup of work
-                  return;
-                }
-
-                var intra_x = local_idx % 16u;
-                var intra_y = local_idx / 16u;
-                pix_x += intra_x;
-                pix_y += intra_y;
-
-                var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
-                // cam transform haxz
-                homo_xy *= 0.7;// fov
-                homo_xy.y = - homo_xy.y;
-                homo_xy.x = - homo_xy.x;
-                var ray_orig = vec3(0.4,0.3, 0);
-                var ray_vec = normalize(vec3f(homo_xy, 1.0));
-                let rot =  uni.time_in *0.1-1;  
-                {
-                  let s_pos = ray_vec;
-                  ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
-                  ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
-                }
-
-                var min_t = 111111.0;
-                var color_tri = vec3f(0.2,0.2,0.0);
-
-                var cell_loc_f = pos_to_cell(ray_orig);
-                var cell_loc_i = vec3i(cell_loc_f);
-                var cell_loc_remain = cell_loc_f - vec3f(cell_loc_i);
-
-     
-                // Normalize remain to be in
-                //  the positive direction
-                var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
-
-                remain_dir *= per_cell_delta(); 
-                var max_cell_count = 0u;
-                for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
-                    var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
-                    //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
-                    if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
-                      break;
-                    }
-                    
-                    if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
-                    var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
-                    max_cell_count = max(max_cell_count, count_cell);
-                    // cells start after zeroth
-
-                    for(var i = 1u; i < count_cell + 1; i++) {
-                        var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
-                        var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
-                        if(res.w > 0.0 && res.w <= min_t){
-                            // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
-                            if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
-                            {
-                              min_t = res.w;
-                              color_tri = curr_tri.col;
-                              }
-                            }
-                        }
-                    }
-                    
-                    if(min_t != 111111.0 ){
-                      // if we have a REAL hit we should exit this loop
-                     break;
-                    }
-               
-                    // Find next cell 
-  
-                    var ray_vec_abs = abs(ray_vec);
-                    // when ray collision with next
-                    var t_to_edge = remain_dir / ray_vec_abs;
-       
-                    if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
-                      cell_loc_i.x += i32(sign(ray_vec.x));
-                      remain_dir -= t_to_edge.x * ray_vec_abs;
-                      remain_dir.x = per_cell_delta().x;
-                    }
-                    else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
-                      cell_loc_i.y += i32(sign(ray_vec.y));
-                      remain_dir -= t_to_edge.y * ray_vec_abs;
-                      remain_dir.y = per_cell_delta().y;
-                    }
-                    else {
-                      cell_loc_i.z += i32(sign(ray_vec.z));
-                      remain_dir -= t_to_edge.z * ray_vec_abs;
-                      remain_dir.z  = per_cell_delta().z;
-                    }
-                    
-                }
-
-                let pix_pos = vec2u(pix_x, pix_y);
-                  // This can happen because rounding of workgroup size vs resolution
-                if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
-                  //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
-                  textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
-                }
-          
-              }
+              let s_pos = ray_vec;
+              ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+              ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
             }
-          
 
+            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = ray_orig;
+            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec = ray_vec;
+            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].px = pix_x;
+            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
+        }
+
+        @compute @workgroup_size(WORKGROUP_SIZE)
+        fn main(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u) {
+            var ray_orig =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var ray_vec =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+
+            const wg_size = WORKGROUP_SIZE;
+            var min_t = 111111.0;
+            var color_tri = vec3f(0.2,0.2,0.0);
+            var cell_loc_f = pos_to_cell(ray_orig);
+            var cell_loc_i = vec3i(cell_loc_f);
+            var cell_loc_remain = cell_loc_f - vec3f(cell_loc_i);
+
+            // Normalize remain to be in
+            //  the positive direction
+            var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
+
+            remain_dir *= per_cell_delta(); 
+            var max_cell_count = 0u;
+            for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
+                var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
+                //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
+                if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
+                  break;
+                }
+                
+                if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
+                var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
+                max_cell_count = max(max_cell_count, count_cell);
+                // cells start after zeroth
+
+                for(var i = 1u; i < count_cell + 1; i++) {
+                    var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
+                    var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
+                    if(res.w > 0.0 && res.w <= min_t){
+                        // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
+                        if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
+                        {
+                          min_t = res.w;
+                          color_tri = curr_tri.col;
+                        }
+                      }
+                    }
+                }
+                
+                if(min_t != 111111.0 ){
+                  // if we have a REAL hit we should exit this loop
+                  break;
+                }
+            
+                // Find next cell 
+
+                var ray_vec_abs = abs(ray_vec);
+                // when ray collision with next
+                var t_to_edge = remain_dir / ray_vec_abs;
+    
+                if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
+                  cell_loc_i.x += i32(sign(ray_vec.x));
+                  remain_dir -= t_to_edge.x * ray_vec_abs;
+                  remain_dir.x = per_cell_delta().x;
+                }
+                else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
+                  cell_loc_i.y += i32(sign(ray_vec.y));
+                  remain_dir -= t_to_edge.y * ray_vec_abs;
+                  remain_dir.y = per_cell_delta().y;
+                }
+                else {
+                  cell_loc_i.z += i32(sign(ray_vec.z));
+                  remain_dir -= t_to_edge.z * ray_vec_abs;
+                  remain_dir.z  = per_cell_delta().z;
+                }
+                
+            }
+
+            var pix_x =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+
+            let pix_pos = vec2u(pix_x, pix_y);
+              // This can happen because rounding of workgroup size vs resolution
+            if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
+              //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
+              textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
+            }
         }
 
        fn box_intersects_triangle( box_min:vec3f,
@@ -464,7 +470,7 @@ function setup_compute_particles() {
       binding: 4,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
-    },
+    }, 
     {
       binding: 5,
       visibility: GPUShaderStage.COMPUTE,
@@ -472,6 +478,11 @@ function setup_compute_particles() {
     },
     {
       binding: 6,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    },
+    {
+      binding: 7,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
@@ -512,9 +523,18 @@ function setup_compute_particles() {
     }
   });
 
+  ray_gen_pipe = device.createComputePipeline({
+    label: "mainRayGen",
+    layout: pipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "mainRayGen"
+    }
+  });
+
 }
 
-function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAccelBuffer, emptyCellAccelBuff, numTriangles, encoder, step) {
+function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAccelBuffer, emptyCellAccelBuff, vizBufferStorage, numTriangles, encoder, step) {
  // encoder.clearBuffer(vizBufferStorage);
   const computePass = encoder.beginComputePass();
   compute_binding = device.createBindGroup({
@@ -533,17 +553,21 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAcce
     },
     {
       binding: 3,
+      resource: { buffer: vizBufferStorage },
+    },
+    {
+      binding: 4,
       resource: { buffer: microTriAccelBuffer },
     }, 
     {
-      binding: 4,
+      binding: 5,
       resource: { buffer: triAccelBuffer },
     },
     {
-      binding: 5,
+      binding: 6,
       resource: { buffer: debuggingBufferStorage },
     },
-    { binding: 6, resource: context.getCurrentTexture().createView()},
+    { binding: 7, resource: context.getCurrentTexture().createView()},
     ],
   });
 
@@ -558,16 +582,30 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAcce
     computePass.dispatchWorkgroups(MICRO_ACCEL_DIV, MICRO_ACCEL_DIV, MICRO_ACCEL_DIV);
   }
 
-  computePass.setPipeline(draw_pipe);
+  // gen
+  {
+    computePass.setPipeline(ray_gen_pipe);
+    computePass.setBindGroup(0, compute_binding);
+    // We break everything into 16x16 tiles which also correspond to a workgroup.
+    const dispatch_width =  Math.ceil(canvas_width / 16);
+    const dispatch_height =  Math.ceil(canvas_height / 16);
+    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
 
-  computePass.setBindGroup(0, compute_binding);
+  }
 
-  const dispatch_width =  Math.ceil(canvas_width / WORKGROUP_SIZE);
-  const dispatch_height =  Math.ceil(canvas_height / WORKGROUP_SIZE);
-  computePass.dispatchWorkgroups(dispatch_width, dispatch_height, 256);
+  // Raytrace
+  for(var i=0;i <1;i++)
+  {
+    computePass.setPipeline(draw_pipe);
+    computePass.setBindGroup(0, compute_binding);
+    // We break everything into 16x16 tiles which also correspond to a workgroup.
+    const dispatch_width =  Math.ceil(canvas_width / 16);
+    const dispatch_height =  Math.ceil(canvas_height / 16);
+    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+
+  }
+
   computePass.end();
-
-
   var stagingBufferDebug = null;
   
   if(debug_mode){
