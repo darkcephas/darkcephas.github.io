@@ -162,9 +162,9 @@ function setup_compute_particles() {
                 homo_xy *= 0.7;// fov
                 homo_xy.y = - homo_xy.y;
                 homo_xy.x = - homo_xy.x;
-                var ray_orig = vec3(0,0.25, 0);
+                var ray_orig = vec3(0.4,0.3, 0);
                 var ray_vec = normalize(vec3f(homo_xy, 1.0));
-                let rot =  uni.time_in *0.1;  
+                let rot =  uni.time_in *0.1-1;  
                 {
                   let s_pos = ray_vec;
                   ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
@@ -191,6 +191,8 @@ function setup_compute_particles() {
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
                     }
+                    
+                    if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
                     var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
                     max_cell_count = max(max_cell_count, count_cell);
                     // cells start after zeroth
@@ -204,6 +206,7 @@ function setup_compute_particles() {
                             {
                               min_t = res.w;
                               color_tri = curr_tri.col;
+                              }
                             }
                         }
                     }

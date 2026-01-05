@@ -8,10 +8,7 @@ var raster_mode = false;
 var microTriAccelBuffer;
 var emptyCellAccelBuff;
 
-const NUM_MICRO_SIMS = 256 * 256 * 2;
-const NUM_PARTICLES_PER_MICRO = 3; // 3 body
 const WORKGROUP_SIZE = 256;
-const WORLD_SCALE = 1000.0;
 const ACCEL_DIV_X = 128;
 const ACCEL_DIV_Y = 32;
 const ACCEL_DIV_Z = 64;
@@ -24,9 +21,6 @@ var canvas_width_stride;
 var bindGroupLayout;
 var uniformBuffer;
 var simulationBindGroups;
-var massAssignBindGroups;
-var starGraphicsBindGroup;
-var massGraphicsBindGroup;
 var forceIndexBindGroups;
 var vizBufferStorage;
 var empytBuffer;
@@ -34,12 +28,13 @@ var time_t = 0.0;
 var depthTexture;
 var triAccelBuffer;
 var epsilon2 = 0.000001;
-var tri_pos_min_x = 100000.0;
-var tri_pos_min_y = 100000.0;
-var tri_pos_min_z = 100000.0;
-var tri_pos_max_x = -100000.0;
-var tri_pos_max_y = -100000.0;
-var tri_pos_max_z = -100000.0;
+var BIG_NUM = 100000.0;
+var tri_pos_min_x = BIG_NUM;
+var tri_pos_min_y = BIG_NUM;
+var tri_pos_min_z = BIG_NUM;
+var tri_pos_max_x = -BIG_NUM;
+var tri_pos_max_y = -BIG_NUM;
+var tri_pos_max_z = -BIG_NUM;
 
 
 
@@ -57,8 +52,6 @@ window.onload = async function () {
   if (!canvas) {
     throw new Error("No canvas.");
   }
-
-  
 
   // Your WebGPU code will begin here!
   if (!navigator.gpu) {
@@ -94,9 +87,6 @@ window.onload = async function () {
       });
 
 
-
-
-
     // only used by rasterizer
     depthTexture = device.createTexture({
       size: { width: canvas_width, height: canvas_height },
@@ -112,9 +102,6 @@ window.onload = async function () {
      */
     // drawStuff(); 
   }
-
-
-
 
 
   canvas_width = canvas.width;
