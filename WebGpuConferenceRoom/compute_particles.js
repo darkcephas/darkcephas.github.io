@@ -171,7 +171,6 @@ function setup_compute_particles() {
                 var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
 
                 remain_dir *= per_cell_delta(); 
-                workgroupBarrier();
                 var max_cell_count = 0u;
                 for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
                     var max_accel_size = vec3i(${ACCEL_DIV_X}, ${ACCEL_DIV_Y},${ACCEL_DIV_Z});
@@ -225,7 +224,6 @@ function setup_compute_particles() {
                     
                 }
 
-                workgroupBarrier();
                 let pix_pos = vec2u(pix_x, pix_y);
                   // This can happen because rounding of workgroup size vs resolution
                 if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
@@ -351,8 +349,9 @@ function setup_compute_particles() {
               var curr_tri = triangles[i];
               for(var j=0u; j < EXTRA_Y_DIM;j++){
                 var y = (local_idx / ${ACCEL_DIV_X}) | (j<<1); 
-                var cell_min = per_cell_delta * vec3f(f32(x),f32(y),f32(z)) + tri_scene_min;
-                var cell_max = per_cell_delta * (vec3f(f32(x),f32(y),f32(z)) + vec3f(1.0)) + tri_scene_min;
+                var xyz = vec3f(f32(x),f32(y),f32(z));
+                var cell_min = per_cell_delta * xyz  + tri_scene_min;
+                var cell_max = per_cell_delta * (xyz + vec3f(1.0)) + tri_scene_min;
 
                 if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
                     if(count_cell[j] < 125){
