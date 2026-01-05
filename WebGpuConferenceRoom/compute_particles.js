@@ -38,6 +38,9 @@ function setup_compute_particles() {
         const ACCEL_DIV_Y =  ${ACCEL_DIV_Y};
         const ACCEL_DIV_Z =  ${ACCEL_DIV_Z};
         const MICRO_ACCEL_DIV = ${MICRO_ACCEL_DIV};
+        const MICRO_ACCEL_MAX_CELL_COUNT = ${MICRO_ACCEL_MAX_CELL_COUNT};
+        const ACCEL_MAX_CELL_COUNT = ${ACCEL_MAX_CELL_COUNT};
+        const WORKGROUP_SIZE = ${WORKGROUP_SIZE};
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
@@ -45,14 +48,14 @@ function setup_compute_particles() {
         @group(0) @binding(3) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
-                                                                    array< atomic<u32>, ${MICRO_ACCEL_MAX_CELL_COUNT}>
+                                                                    array< atomic<u32>, MICRO_ACCEL_MAX_CELL_COUNT>
                                                                       ,MICRO_ACCEL_DIV>
                                                                         ,MICRO_ACCEL_DIV>
                                                                          ,MICRO_ACCEL_DIV> ;
         @group(0) @binding(4) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
-                                                                    array< u32, ${ACCEL_MAX_CELL_COUNT}>
+                                                                    array< u32, ACCEL_MAX_CELL_COUNT>
                                                                       ,ACCEL_DIV_X>
                                                                         ,ACCEL_DIV_Y>
                                                                          ,ACCEL_DIV_Z> ;
@@ -106,7 +109,7 @@ function setup_compute_particles() {
         fn per_cell_delta() -> vec3f {
             var tri_scene_min = uni.tri_pos_min.xyz;
             var tri_scene_max = uni.tri_pos_max.xyz;
-            var per_cell_delta = (tri_scene_max - tri_scene_min) / vec3f(ACCEL_DIV_X, ${ACCEL_DIV_Y}, ${ACCEL_DIV_Z});
+            var per_cell_delta = (tri_scene_max - tri_scene_min) / vec3f(ACCEL_DIV_X, ACCEL_DIV_Y, ACCEL_DIV_Z);
             return per_cell_delta;
         }
 
@@ -137,10 +140,10 @@ function setup_compute_particles() {
           dbgOut(val.z);
         }
 
-        @compute @workgroup_size(${WORKGROUP_SIZE})
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            const wg_size = ${WORKGROUP_SIZE};
+            const wg_size = WORKGROUP_SIZE;
             // we have these 16x16 tiles and we have 16x16 total of them
             // for a 256 area.  65536 pixels 
             var tile_x = wg_id.z % 16u;
@@ -191,7 +194,7 @@ function setup_compute_particles() {
                 remain_dir *= per_cell_delta(); 
                 var max_cell_count = 0u;
                 for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
-                    var max_accel_size = vec3i(ACCEL_DIV_X, ${ACCEL_DIV_Y},${ACCEL_DIV_Z});
+                    var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
                     //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
                     if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                       break;
@@ -348,7 +351,7 @@ function setup_compute_particles() {
                                               ACCEL_DIV_Y / MICRO_ACCEL_DIV>,
                                               ACCEL_DIV_Z / MICRO_ACCEL_DIV> ;
 
-        @compute @workgroup_size(${WORKGROUP_SIZE})
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn accelmain(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
             let tri_scene_min = uni.tri_pos_min.xyz;
@@ -380,7 +383,7 @@ function setup_compute_particles() {
                   }
                 }
               }
-              micro_tri_idx_thread += ${WORKGROUP_SIZE};// next batch of triangles
+              micro_tri_idx_thread += WORKGROUP_SIZE;// next batch of triangles
             }
 
             workgroupBarrier(); // THIS IS NO JOKE
@@ -404,10 +407,10 @@ function setup_compute_particles() {
             }
         }
 
-        @compute @workgroup_size(${WORKGROUP_SIZE})
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn microAccelmain(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u) {
-            let tri_idx = local_idx + wg_id.x * ${WORKGROUP_SIZE};
+            let tri_idx = local_idx + wg_id.x * WORKGROUP_SIZE;
             if(tri_idx >=  arrayLength(&triangles)){
               // out of bounds. Expected.
               return;
