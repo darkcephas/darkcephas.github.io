@@ -28,19 +28,19 @@ function setup_compute_particles() {
       };
 
       struct Uniforms{
-        canvas_size: vec2f,
-        canvas_stride: f32,
-        time_in:f32,
+        canvas_size: vec2f, canvas_stride: f32, time_in:f32,
         tri_pos_min: vec4f,
         tri_pos_max: vec4f
       };
 
 
-        struct Ray {
+        struct RayIn {
           ray_orig:vec3f, px:u32,
           ray_vec:vec3f, py:u32,
-          normal:vec3f, dist_t:f32,
-          no_used:vec3f, tri_idx:u32,
+        };
+
+        struct RayOut {
+          rr:vec3f, idx:u32,
         };
 
 
@@ -55,7 +55,7 @@ function setup_compute_particles() {
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
         @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ACCEL_DIV_X>, ACCEL_DIV_Z>;
-        @group(0) @binding(3) var<storage, read_write> rayInOut: array<array<Ray, WORKGROUP_SIZE>>;
+        @group(0) @binding(3) var<storage, read_write> rayIn: array<array<RayIn, WORKGROUP_SIZE>>;
         @group(0) @binding(4) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
@@ -175,18 +175,18 @@ function setup_compute_particles() {
               ray_vec.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
             }
 
-            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = ray_orig;
-            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec = ray_vec;
-            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].px = pix_x;
-            rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = ray_orig;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec = ray_vec;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px = pix_x;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
         @builtin( num_workgroups) num_wg:vec3u) {
-            var ray_orig =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
-            var ray_vec =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+            var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
 
             const wg_size = WORKGROUP_SIZE;
             var min_t = 111111.0;
@@ -256,8 +256,8 @@ function setup_compute_particles() {
                 
             }
 
-            var pix_x =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
-            var pix_y =  rayInOut[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+            var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
 
             let pix_pos = vec2u(pix_x, pix_y);
               // This can happen because rounding of workgroup size vs resolution
@@ -590,11 +590,10 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAcce
     const dispatch_width =  Math.ceil(canvas_width / 16);
     const dispatch_height =  Math.ceil(canvas_height / 16);
     computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
-
   }
 
   // Raytrace
-  for(var i=0;i <1;i++)
+  for(var i=0;i <16;i++)
   {
     computePass.setPipeline(draw_pipe);
     computePass.setBindGroup(0, compute_binding);

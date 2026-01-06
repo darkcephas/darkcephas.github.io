@@ -71,7 +71,7 @@ window.onload = async function () {
     canvas_width_block  =  Math.ceil(canvas_width / 16);
     canvas_height_block  =  Math.ceil(canvas_height / 16);
     var block_size = 16*16;
-    const numVizBufferElementBytes = 16*4;
+    const numVizBufferElementBytes = 8*4;
     const numVizBufferTotal = numVizBufferElementBytes * canvas_width_block * canvas_height_block * block_size;
     vizBufferStorage =
       device.createBuffer({
