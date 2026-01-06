@@ -52,6 +52,8 @@ var accel_pipe;
 var micro_accel_pipe;
 var computeCommonBindGroupLayout;
 var secondaryBindGroupLayout;
+var secondaryUniformBuffer;
+var secondaryComputeBinding;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
@@ -365,7 +367,7 @@ function setup_compute_particles() {
 
  
   const drawShaderModule = device.createShaderModule({
-    label: "ParticleAvec",
+    label: "RaytracingShaderModule",
     code: `
       struct Triangle{
         pos0:vec3f, padd0:f32,
@@ -402,23 +404,31 @@ function setup_compute_particles() {
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
         @group(0) @binding(2) var<storage, read_write> emptyCellAccel: array<array<u32, ACCEL_DIV_X>, ACCEL_DIV_Z>;
-        @group(0) @binding(3) var<storage, read_write> rayIn: array<array<RayIn, WORKGROUP_SIZE>>;
-        @group(0) @binding(4) var<storage, read_write> microAccel: array<
+        @group(0) @binding(3) var<storage, read_write> microAccel: array<
                                                                   array<
                                                                    array<
                                                                     array< atomic<u32>, MICRO_ACCEL_MAX_CELL_COUNT>
                                                                       ,MICRO_ACCEL_DIV>
                                                                         ,MICRO_ACCEL_DIV>
                                                                          ,MICRO_ACCEL_DIV> ;
-        @group(0) @binding(5) var<storage, read_write> accelTri: array<
+        @group(0) @binding(4) var<storage, read_write> accelTri: array<
                                                                   array<
                                                                    array<
                                                                     array< u32, ACCEL_MAX_CELL_COUNT>
                                                                       ,ACCEL_DIV_X>
                                                                         ,ACCEL_DIV_Y>
                                                                          ,ACCEL_DIV_Z> ;
-        @group(0) @binding(6) var<storage, read_write> dbg: array<f32>;
-        @group(0) @binding(7) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+        @group(0) @binding(5) var<storage, read_write> dbg: array<f32>;
+
+        struct AltUniforms{
+           data:vec4f
+        };
+
+        // Fast changing
+        @group(1) @binding(0) var<uniform> altUni: AltUniforms;
+        @group(1) @binding(1) var<storage, read_write> rayIn: array<array<RayIn, WORKGROUP_SIZE>>;
+        @group(1) @binding(2) var<storage, read_write> rayResult: array<array<RayResult, WORKGROUP_SIZE>>;
+        @group(1) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -821,17 +831,7 @@ function setup_compute_particles() {
       binding: 5,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
-    },
-    {
-      binding: 6,
-      visibility: GPUShaderStage.COMPUTE,
-      buffer: { type: "storage" }
-    },
-    {
-      binding: 7,
-      visibility: GPUShaderStage.COMPUTE,
-      storageTexture: { access: "write-only", format: canvasformat }
-    }]
+    },]
   });
 
 
@@ -851,7 +851,7 @@ function setup_compute_particles() {
       buffer: { type: "storage" }
     }, 
     {
-      binding: 7,
+      binding: 3,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
@@ -860,9 +860,36 @@ function setup_compute_particles() {
 
   const computePipelineLayout = device.createPipelineLayout({
     label: "Full pipeline layout",
-    bindGroupLayouts: [computeCommonBindGroupLayout],
+    bindGroupLayouts: [computeCommonBindGroupLayout, secondaryBindGroupLayout],
   });
 
+  commonComputeBinding = device.createBindGroup({
+    label: "Common Global binding",
+    layout: computeCommonBindGroupLayout,
+    entries: [{
+      binding: 0,
+      resource: { buffer: uniformBuffer }
+    }, {
+      binding: 1, 
+      resource: { buffer: triStateStorage },
+    }, 
+    {
+      binding: 2,
+      resource: { buffer: emptyCellAccelBuff },
+    },
+    {
+      binding: 3,
+      resource: { buffer: microTriAccelBuffer },
+    }, 
+    {
+      binding: 4,
+      resource: { buffer: triAccelBuffer },
+    },
+    {
+      binding: 5,
+      resource: { buffer: debuggingBufferStorage },
+    },],
+  });
 
   rayTracePipeline = device.createComputePipeline({
     label: "main",
@@ -900,42 +927,40 @@ function setup_compute_particles() {
     }
   });
 
+  secondaryUniformBuffer = device.createBuffer({
+    label: "Secondary Uniforms",
+    size: 128,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
 }
 
 function update_compute_particles(encoder, step) {
  // encoder.clearBuffer(rayInBufferStorage);
+
+ {
+  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
+      tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
+      tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0]);
+    device.queue.writeBuffer(secondaryUniformBuffer, 0, uniformArray);
+ }
   const computePass = encoder.beginComputePass();
-  commonComputeBinding = device.createBindGroup({
-    label: "Common Global binding",
-    layout: computeCommonBindGroupLayout,
+  var secondaryComputeBinding = device.createBindGroup({
+    label: "Secondary alt binding",
+    layout: secondaryBindGroupLayout,
     entries: [{
       binding: 0,
-      resource: { buffer: uniformBuffer }
-    }, {
-      binding: 1, 
-      resource: { buffer: triStateStorage },
-    }, 
-    {
-      binding: 2,
-      resource: { buffer: emptyCellAccelBuff },
+      resource: { buffer: secondaryUniformBuffer }
     },
     {
-      binding: 3,
+      binding: 1,
       resource: { buffer: rayInBufferStorage },
     },
     {
-      binding: 4,
-      resource: { buffer: microTriAccelBuffer },
+      binding: 2,
+      resource: { buffer: rayResultBufferStorage },
     }, 
-    {
-      binding: 5,
-      resource: { buffer: triAccelBuffer },
-    },
-    {
-      binding: 6,
-      resource: { buffer: debuggingBufferStorage },
-    },
-    { binding: 7, resource: context.getCurrentTexture().createView()},
+    { binding: 3, resource: context.getCurrentTexture().createView()},
     ],
   });
 
@@ -943,11 +968,13 @@ function update_compute_particles(encoder, step) {
     // Acceleration structures
     computePass.setPipeline(micro_accel_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
     var num_wg = Math.ceil(numTriangles/ WORKGROUP_SIZE);
     computePass.dispatchWorkgroups(num_wg);
 
     computePass.setPipeline(accel_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
     computePass.dispatchWorkgroups(MICRO_ACCEL_DIV, MICRO_ACCEL_DIV, MICRO_ACCEL_DIV);
   }
 
@@ -955,6 +982,7 @@ function update_compute_particles(encoder, step) {
   {
     computePass.setPipeline(cam_ray_gen_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
     // We break everything into 16x16 tiles which also correspond to a workgroup.
     const dispatch_width =  Math.ceil(canvas_width / 16);
     const dispatch_height =  Math.ceil(canvas_height / 16);
@@ -965,6 +993,7 @@ function update_compute_particles(encoder, step) {
   {
     computePass.setPipeline(rayTracePipeline);
     computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
     // We break everything into 16x16 tiles which also correspond to a workgroup.
     const dispatch_width =  Math.ceil(canvas_width / 16);
     const dispatch_height =  Math.ceil(canvas_height / 16);
