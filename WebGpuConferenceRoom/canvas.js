@@ -12,7 +12,7 @@ var commonComputeBinding;
 var ray_gen_pipe;
 var bindGroupLayout;
 var debuggingBufferStorage;
-var kDebugArraySize = 1024*4*1024;
+var kDebugArraySize = 1024*4;
 var wait_for_debug = false;
 
 const WORKGROUP_SIZE = 256;
@@ -31,6 +31,7 @@ var uniformBuffer;
 var simulationBindGroups;
 var forceIndexBindGroups;
 var rayInBufferStorage;
+var rayResultBufferStorage;
 var triStateStorage;
 var numTriangles;
 const kSizeBytesInU32 = 4;
@@ -92,6 +93,15 @@ window.onload = async function () {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
 
+    const numRayResultElementBytes = 4*4; // RayResult
+    const numRayResultBufferTotalBytes = numRayResultElementBytes * canvas_width_block * canvas_height_block * tileBlockSize;
+    rayResultBufferStorage =
+    device.createBuffer({
+      label: "RayIn buffer",
+      size: numRayResultBufferTotalBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
     rasterizerDepthTexture = device.createTexture({
       size: { width: canvas_width, height: canvas_height },
       dimension: '2d',
@@ -114,13 +124,11 @@ window.onload = async function () {
     device = await adapter.requestDevice({ requiredFeatures:reqFeatures });
   }
   
-  // Moderate size structure (16mb)
-  // Lists of indices
 
   const accel_buff_size =  ACCEL_DIV_X * ACCEL_DIV_Y * ACCEL_DIV_Z * ACCEL_MAX_CELL_COUNT * kSizeBytesInU32;
   triAccelBuffer = 
     device.createBuffer({
-      label: "Triangle accel",
+      label: "Triangle accel index buffer",
       size: accel_buff_size,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -128,7 +136,7 @@ window.onload = async function () {
   const micro_accel_buff_size =  MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_MAX_CELL_COUNT * kSizeBytesInU32;
     microTriAccelBuffer = 
       device.createBuffer({
-        label: "Micro Triangle accel",
+        label: "Micro list triangle index accel",
         size: micro_accel_buff_size,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
@@ -155,8 +163,6 @@ window.onload = async function () {
 
   onResizeCanvas();
  
-
-
   uniformBuffer = device.createBuffer({
     label: "Uniforms",
     size: 128,
@@ -183,9 +189,7 @@ window.onload = async function () {
       };
 
       struct Triangle{
-        pos0:vec3f, padd0:f32,
-        pos1:vec3f, padd1:f32,
-        pos2:vec3f, padd2:f32,
+        pos: array<vec4f, 3>,
         col:vec3f, cpadd:f32,
       };
 
@@ -195,22 +199,14 @@ window.onload = async function () {
       fn vertexMain(input: VertexInput) -> VertexOutput {
         var output: VertexOutput;
         let which_triangle = input.instance/3u;
-        var pos = vec3f(0,0,0);
-        if(input.instance % 3 == 0){
-          pos = renderBufferIn[which_triangle].pos0;
-        }
-        else if(input.instance % 3 == 1){
-          pos = renderBufferIn[which_triangle].pos1;
-        }
-        else if(input.instance % 3 == 2){
-          pos = renderBufferIn[which_triangle].pos2;
-        }
+        var pos = renderBufferIn[which_triangle].pos[input.instance % 3].xyz;
+
         output.prim_color = renderBufferIn[which_triangle].col;
         //var test_array= array(vec3f(0,0,.1), vec3f(1,0,.1),vec3f(0,1,.1));
         //pos = test_array[input.instance % 3];
         let s_pos = pos;
         let rot = canvas_size.w*0.2*1.71;
-        pos.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
+        pos.x = s_pos.x * cos(rot) + s_pos.z * -sin(rot);
         pos.z = s_pos.x * sin(rot) + s_pos.z * cos(rot);
         const zNear = 0.05;
         const zFar = 1.3;
@@ -340,8 +336,7 @@ window.onload = async function () {
         const data_as_float = new Float32Array(data);
         console.log(data_as_float);
         buff_ret.unmap();
-          wait_for_debug = false;
-          
+        wait_for_debug = false; 
       });
     }
 
@@ -356,9 +351,6 @@ window.onload = async function () {
 
 
 function setup_compute_particles() {
-
-  
-
   debuggingBufferStorage =
   device.createBuffer({
     label: "debugging storage result",
@@ -389,7 +381,7 @@ function setup_compute_particles() {
           ray_vec:vec3f, py:u32,
         };
 
-        struct RayOut {
+        struct RayResult {
           rr:vec3f, idx:u32,
         };
 
@@ -942,7 +934,6 @@ function update_compute_particles(encoder, step) {
   }
 
   // Raytrace
-  for(var i=0;i <1;i++)
   {
     computePass.setPipeline(draw_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
@@ -955,7 +946,6 @@ function update_compute_particles(encoder, step) {
 
   computePass.end();
   var stagingBufferDebug = null;
-  
   if(debug_mode){
     stagingBufferDebug = device.createBuffer({
       label: "staging buff dbg",
