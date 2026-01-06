@@ -158,8 +158,12 @@ window.onload = async function () {
 
   resizeCanvas();
   var mesh_data = cr_data;
-  const numTriangles = mesh_data.length / (4 * 3);
+  const numDataTriangles = mesh_data.length / (4 * 3);
   const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
+  const numLightsX = 10;
+  const numLightsZ = 10;
+  const numTrianglesForLights = 2 * numLightsX * numLightsZ;
+  const numTriangles = numTrianglesForLights + numDataTriangles;
   const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
   var triStateStorage =
     device.createBuffer({
@@ -215,9 +219,64 @@ window.onload = async function () {
   tri_pos_min_y -= epsilon2;
   tri_pos_min_z -= epsilon2;
 
-  var dbg_zero_loc_x =  16.0 * (0.0-tri_pos_min_x)  / (tri_pos_max_x-tri_pos_min_x);
-  var dbg_zero_loc_y =  16.0 * (0.2-tri_pos_min_y)  / (tri_pos_max_y-tri_pos_min_y);
-  var dbg_zero_loc_z =  16.0 * (0.0-tri_pos_min_z)  / (tri_pos_max_z-tri_pos_min_z);
+  // Manual lights for conference room
+  for(var i=0; i < numLightsX; i++){
+    for(var j=0; j < numLightsZ; j++){
+        // 4x4 steps but inset actual rect
+        var y_height = tri_pos_max_y -0.0001;
+        var inset_size = 0.003;
+        var step_x = (tri_pos_max_x - tri_pos_min_x)/numLightsX;
+        var x_start = (step_x * i) + tri_pos_min_x + inset_size;
+        var x_end = (step_x * (i+1)) + tri_pos_min_x - inset_size;
+
+        var step_z = (tri_pos_max_z - tri_pos_min_z)/numLightsZ;
+        var z_start = (step_z * j) + tri_pos_min_z + inset_size;
+        var z_end = (step_z * (j+1)) + tri_pos_min_z -inset_size;
+
+        // first triangle
+        triStateArray[triDataPutIdx++] = x_start;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_start;
+        triStateArray[triDataPutIdx++] = 0.0;
+        
+        triStateArray[triDataPutIdx++] = x_start;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_end;
+        triStateArray[triDataPutIdx++] = 0.0;
+
+        triStateArray[triDataPutIdx++] = x_end;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_start;
+        triStateArray[triDataPutIdx++] = 0.0;
+
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+
+        // second tri
+        triStateArray[triDataPutIdx++] = x_end;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_start;
+        triStateArray[triDataPutIdx++] = 0.0;
+        
+        triStateArray[triDataPutIdx++] = x_start;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_end;
+        triStateArray[triDataPutIdx++] = 0.0;
+
+        triStateArray[triDataPutIdx++] = x_end;
+        triStateArray[triDataPutIdx++] = y_height;
+        triStateArray[triDataPutIdx++] = z_end;
+        triStateArray[triDataPutIdx++] = 0.0;
+
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+        triStateArray[triDataPutIdx++] = 1.0;
+    }
+  }
+
 
   device.queue.writeBuffer(triStateStorage, 0, triStateArray);
 
