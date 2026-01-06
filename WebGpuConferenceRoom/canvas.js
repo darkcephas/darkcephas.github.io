@@ -13,6 +13,8 @@ var cam_ray_gen_pipe;
 var bindGroupLayout;
 var debuggingBufferStorage;
 var kDebugArraySize = 1024*4;
+const RND_UNIT_SPHERE_SIZE = 1024;
+var kRndUnitArraySize = RND_UNIT_SPHERE_SIZE*4*4;
 var wait_for_debug = false;
 
 const WORKGROUP_SIZE = 256;
@@ -55,6 +57,116 @@ var secondaryBindGroupLayout;
 var secondaryUniformBuffer;
 var secondaryComputeBinding;
 var bounceGenPipeline;
+var rndUnitSphereBuffer;
+var bounceSamplePipeline;
+
+
+
+function ImportTriangleData(){
+  var meshData = cr_data;
+  const dataNumFloatsPerTriangle = (4 * 3); // No w component
+  const numDataTriangles = meshData.length / dataNumFloatsPerTriangle;
+  const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
+  const numLightsX = 10;
+  const numLightsZ = 10;
+  const trianglesPerLight = 2;
+  const numTrianglesForLights = trianglesPerLight * numLightsX * numLightsZ;
+  numTriangles = numTrianglesForLights + numDataTriangles;
+  const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
+  triStateStorage =
+    device.createBuffer({
+      label: "Triangles Buffer",
+      size: triStateArray.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+
+  var triDataInIdx = 0;
+  var triDataPutIdx = 0;
+  const scalingXYZ = 0.03;
+  const bRandColor = false;
+  function fAddTriData(single_data){
+    triStateArray[triDataPutIdx++] = single_data;
+  }
+  while (triDataInIdx < meshData.length) {
+    // v0, v1, v2, col (3 idx)
+    for (var i = 0; i < 4; i++) {
+      if(i == 3 && bRandColor){
+        fAddTriData(Math.random());
+        fAddTriData(Math.random());
+        fAddTriData(Math.random());
+        triDataInIdx+=3;
+      }
+      else
+      {
+        const localScale = i==3 ? 1.0 : scalingXYZ;
+        var x = meshData[triDataInIdx++] * localScale;
+        var y = meshData[triDataInIdx++] * localScale;
+        var z = meshData[triDataInIdx++] * localScale;
+       
+        if(i!=3){
+          tri_pos_max_x = Math.max(x, tri_pos_max_x);
+          tri_pos_max_y = Math.max(y, tri_pos_max_y);
+          tri_pos_max_z = Math.max(z, tri_pos_max_z);
+
+          tri_pos_min_x = Math.min(x, tri_pos_min_x);
+          tri_pos_min_y = Math.min(y, tri_pos_min_y);
+          tri_pos_min_z = Math.min(z, tri_pos_min_z);
+        }
+
+        fAddTriData(x);
+        fAddTriData(y);
+        fAddTriData(z);
+      }
+      fAddTriData(0.0);
+    }
+  }
+
+  // Extend out a tiny bit to avoid float issues
+  var epsilon2 = 0.000001;
+  tri_pos_max_x += epsilon2;
+  tri_pos_max_y += epsilon2;
+  tri_pos_max_z += epsilon2;
+  tri_pos_min_x -= epsilon2;
+  tri_pos_min_y -= epsilon2;
+  tri_pos_min_z -= epsilon2;
+
+  function fAddTriDataV(xx, yy,zz,ww){
+    fAddTriData(xx); fAddTriData(yy); fAddTriData(zz); fAddTriData(ww);
+  }
+
+  // Manual lights for conference room
+  for(var i=0; i < numLightsX; i++){
+    for(var j=0; j < numLightsZ; j++){
+        // 4x4 steps but inset actual rect
+        var y_height = tri_pos_max_y -0.0001;
+        var inset_size = 0.003;
+        var step_x = (tri_pos_max_x - tri_pos_min_x)/numLightsX;
+        var x_start = (step_x * i) + tri_pos_min_x + inset_size;
+        var x_end = (step_x * (i+1)) + tri_pos_min_x - inset_size;
+
+        var step_z = (tri_pos_max_z - tri_pos_min_z)/numLightsZ;
+        var z_start = (step_z * j) + tri_pos_min_z + inset_size;
+        var z_end = (step_z * (j+1)) + tri_pos_min_z -inset_size;
+
+        // first triangle
+        fAddTriDataV(x_start, y_height, z_start, 0);
+        fAddTriDataV(x_end, y_height, z_start, 0);
+        fAddTriDataV(x_start, y_height, z_end, 0);
+        fAddTriDataV(1, 1, 1, 1);
+
+
+        // second tri
+        fAddTriDataV(x_start, y_height, z_end, 0);
+        fAddTriDataV(x_end, y_height, z_start, 0);
+        fAddTriDataV(x_end, y_height, z_end, 0);
+        fAddTriDataV(1, 1, 1, 1);
+    }
+  }
+
+
+  device.queue.writeBuffer(triStateStorage, 0, triStateArray);
+}
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
@@ -184,17 +296,17 @@ window.onload = async function () {
 
       struct VertexOutput {
         @builtin(position) pos: vec4f,
-        @location(0) prim_color: vec3f, // Not used yet
+        @location(0) prim_color: vec4f, 
       };
       
       struct FragInput {
         @builtin(position) pos: vec4f,
-        @location(0) prim_color: vec3f,
+        @location(0) prim_color: vec4f,
       };
 
       struct Triangle{
         pos: array<vec4f, 3>,
-        col:vec3f, cpadd:f32,
+        col:vec4f, // rgb + emmissive
       };
 
       @group(0) @binding(0) var<uniform> canvas_size: vec4f;
@@ -227,7 +339,7 @@ window.onload = async function () {
 
      @fragment
       fn fragmentMain(input: FragInput) -> @location(0) vec4f {
-        return vec4f(input.prim_color, 1) ;
+        return vec4f(input.prim_color.xyz, 1) ;
       }
     `
   });
@@ -366,6 +478,41 @@ function setup_compute_particles() {
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
 
+
+
+  rndUnitSphereBuffer = device.createBuffer({
+    label: "rnd unit sphere array",
+    size: kRndUnitArraySize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+
+  // Generate unit sphere
+  {
+    const dataArray = new Float32Array(RND_UNIT_SPHERE_SIZE*4);
+    var outDataIdx = 0;
+    for(var i=0; i<RND_UNIT_SPHERE_SIZE;i++){
+      for(;;){
+        var x = (Math.random()-0.5)*2.0;
+        var y = (Math.random()-0.5)*2.0;
+        var z = (Math.random()-0.5)*2.0;
+
+        var total_length = Math.sqrt(x*x + y*y + z*z);
+        if(total_length > 0.01 && total_length <= 1.0){
+          x = x / total_length;
+          y = y / total_length;
+          z = z / total_length;
+          break;
+        }
+      }
+
+      dataArray[outDataIdx++] = x;
+      dataArray[outDataIdx++] = y;
+      dataArray[outDataIdx++] = z;
+      dataArray[outDataIdx++] = 0;
+    }
+    device.queue.writeBuffer(rndUnitSphereBuffer, 0, dataArray);
+  }
+
  
   const drawShaderModule = device.createShaderModule({
     label: "RaytracingShaderModule",
@@ -374,7 +521,7 @@ function setup_compute_particles() {
         pos0:vec3f, padd0:f32,
         pos1:vec3f, padd1:f32,
         pos2:vec3f, padd2:f32,
-        col:vec3f, cpadd:f32,
+        col:vec4f, //rgb + emmissive
       };
 
       struct Uniforms{
@@ -401,6 +548,8 @@ function setup_compute_particles() {
         const MICRO_ACCEL_MAX_CELL_COUNT = ${MICRO_ACCEL_MAX_CELL_COUNT};
         const ACCEL_MAX_CELL_COUNT = ${ACCEL_MAX_CELL_COUNT};
         const WORKGROUP_SIZE = ${WORKGROUP_SIZE};
+        const RND_UNIT_SPHERE_SIZE = ${RND_UNIT_SPHERE_SIZE};
+
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
         @group(0) @binding(1) var<storage, read_write> triangles: array<Triangle>;
@@ -419,7 +568,8 @@ function setup_compute_particles() {
                                                                       ,ACCEL_DIV_X>
                                                                         ,ACCEL_DIV_Y>
                                                                          ,ACCEL_DIV_Z> ;
-        @group(0) @binding(5) var<storage, read_write> dbg: array<f32>;
+        @group(0) @binding(5) var<storage, read_write> rndUnit: array<vec4f, RND_UNIT_SPHERE_SIZE>;
+        @group(0) @binding(6) var<storage, read_write> dbg: array<f32>;
 
         struct AltUniforms{
            data:vec4f
@@ -547,11 +697,12 @@ function setup_compute_particles() {
             var tile_y = local_idx / 16u;
 
             var hit_ray_dir =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
-            var hit_ray_pos =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var hit_ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
  
             var pix_x = tile_x + wg_id.x * 16u;
             var pix_y = tile_y + wg_id.y * 16u;
             var tri_idx = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+            var dist_t = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].dist_t;
             var curr_tri = triangles[tri_idx];
             var normal = normalize(cross(curr_tri.pos1 - curr_tri.pos0, curr_tri.pos2 - curr_tri.pos0));
             if(dot(normal, hit_ray_dir) > 0.0){
@@ -561,7 +712,7 @@ function setup_compute_particles() {
             }
 
             // Back off the surface a bit 
-            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = hit_ray_pos - hit_ray_dir * 0.00001;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = hit_ray_orig +  hit_ray_dir *(dist_t - 0.0001);
             rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec = normal;
             rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px = pix_x;
             rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
@@ -659,7 +810,42 @@ function setup_compute_particles() {
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
               //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
-              textureStore(frame_buffer, pix_pos , vec4f(color_tri, 1));
+              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+            }
+            rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx] = ray_result;
+        }
+
+
+        @compute @workgroup_size(WORKGROUP_SIZE)
+        fn mainSampledBounce(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u) {
+            var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+
+            var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+       
+            var emissive = 0.0;
+            var num_samples = 2u;
+            //var roll_mod = u32(uni.time_in * 121231.2131);
+            for(var q=0u;q<num_samples ;q++){
+              // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
+              ray_vec = normalize(ray_vec + rndUnit[(q*1666 + ((pix_x*113)^(pix_y*3))) % RND_UNIT_SPHERE_SIZE].xyz);
+              var ray_result = RayTraceSingle(ray_orig, ray_vec);
+              emissive += triangles[ray_result.tri].col.w;
+            }
+           emissive *= 1.0/f32( num_samples);
+          emissive*=2.0;
+          // ray_result.px = pix_x;
+            //ray_result.py = pix_y;
+            let pix_pos = vec2u(pix_x, pix_y);
+              // This can happen because rounding of workgroup size vs resolution
+            if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
+              var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+              var color_tri = triangles[orig_tri].col;
+              emissive += color_tri.w;
+              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz *emissive, 1));
             }
         }
 
@@ -871,6 +1057,11 @@ function setup_compute_particles() {
       binding: 5,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
+    }, 
+    {
+      binding: 6,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
     },]
   });
 
@@ -927,9 +1118,15 @@ function setup_compute_particles() {
     },
     {
       binding: 5,
+      resource: { buffer: rndUnitSphereBuffer },
+    },
+    {
+      binding: 6,
       resource: { buffer: debuggingBufferStorage },
     },],
   });
+
+  
 
   rayTracePipeline = device.createComputePipeline({
     label: "main",
@@ -975,6 +1172,17 @@ function setup_compute_particles() {
       entryPoint: "mainBounceGen"
     }
   });
+
+
+  bounceSamplePipeline = device.createComputePipeline({
+    label: "mainSampledBounce",
+    layout: computePipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "mainSampledBounce"
+    }
+  });
+  
   
 
   secondaryUniformBuffer = device.createBuffer({
@@ -1015,7 +1223,7 @@ function update_compute_particles(encoder, step) {
   });
 
   if(step == 1){
-    // Acceleration structures
+    // Build Acceleration structures
     computePass.setPipeline(micro_accel_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
@@ -1061,6 +1269,18 @@ function update_compute_particles(encoder, step) {
     computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
   }
 
+  // Raytrace
+  if(true)
+  {
+    computePass.setPipeline(bounceSamplePipeline);
+    computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
+    // We break everything into 16x16 tiles which also correspond to a workgroup.
+    const dispatch_width =  Math.ceil(canvas_width / 16);
+    const dispatch_height =  Math.ceil(canvas_height / 16);
+    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+  }
+
   computePass.end();
   var stagingBufferDebug = null;
   if(debug_mode){
@@ -1085,109 +1305,3 @@ function update_compute_particles(encoder, step) {
 
 
 
-
-function ImportTriangleData(){
-  var meshData = cr_data;
-  const dataNumFloatsPerTriangle = (4 * 3); // No w component
-  const numDataTriangles = meshData.length / dataNumFloatsPerTriangle;
-  const numFloatsPerTriangle = 4 * 4; // v0,v1,v2,col;
-  const numLightsX = 10;
-  const numLightsZ = 10;
-  const trianglesPerLight = 2;
-  const numTrianglesForLights = trianglesPerLight * numLightsX * numLightsZ;
-  numTriangles = numTrianglesForLights + numDataTriangles;
-  const triStateArray = new Float32Array(numFloatsPerTriangle * numTriangles);
-  triStateStorage =
-    device.createBuffer({
-      label: "Triangles Buffer",
-      size: triStateArray.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-
-
-  var triDataInIdx = 0;
-  var triDataPutIdx = 0;
-  const scalingXYZ = 0.03;
-  const bRandColor = false;
-  function fAddTriData(single_data){
-    triStateArray[triDataPutIdx++] = single_data;
-  }
-  while (triDataInIdx < meshData.length) {
-    // v0, v1, v2, col (3 idx)
-    for (var i = 0; i < 4; i++) {
-      if(i == 3 && bRandColor){
-        fAddTriData(Math.random());
-        fAddTriData(Math.random());
-        fAddTriData(Math.random());
-        triDataInIdx+=3;
-      }
-      else
-      {
-        const localScale = i==3 ? 1.0 : scalingXYZ;
-        var x = meshData[triDataInIdx++] * localScale;
-        var y = meshData[triDataInIdx++] * localScale;
-        var z = meshData[triDataInIdx++] * localScale;
-       
-        if(i!=3){
-          tri_pos_max_x = Math.max(x, tri_pos_max_x);
-          tri_pos_max_y = Math.max(y, tri_pos_max_y);
-          tri_pos_max_z = Math.max(z, tri_pos_max_z);
-
-          tri_pos_min_x = Math.min(x, tri_pos_min_x);
-          tri_pos_min_y = Math.min(y, tri_pos_min_y);
-          tri_pos_min_z = Math.min(z, tri_pos_min_z);
-        }
-
-        fAddTriData(x);
-        fAddTriData(y);
-        fAddTriData(z);
-      }
-      fAddTriData(0.0);
-    }
-  }
-
-  // Extend out a tiny bit to avoid float issues
-  var epsilon2 = 0.000001;
-  tri_pos_max_x += epsilon2;
-  tri_pos_max_y += epsilon2;
-  tri_pos_max_z += epsilon2;
-  tri_pos_min_x -= epsilon2;
-  tri_pos_min_y -= epsilon2;
-  tri_pos_min_z -= epsilon2;
-
-  function fAddTriDataV(xx, yy,zz,ww){
-    fAddTriData(xx); fAddTriData(yy); fAddTriData(zz); fAddTriData(ww);
-  }
-
-  // Manual lights for conference room
-  for(var i=0; i < numLightsX; i++){
-    for(var j=0; j < numLightsZ; j++){
-        // 4x4 steps but inset actual rect
-        var y_height = tri_pos_max_y -0.0001;
-        var inset_size = 0.003;
-        var step_x = (tri_pos_max_x - tri_pos_min_x)/numLightsX;
-        var x_start = (step_x * i) + tri_pos_min_x + inset_size;
-        var x_end = (step_x * (i+1)) + tri_pos_min_x - inset_size;
-
-        var step_z = (tri_pos_max_z - tri_pos_min_z)/numLightsZ;
-        var z_start = (step_z * j) + tri_pos_min_z + inset_size;
-        var z_end = (step_z * (j+1)) + tri_pos_min_z -inset_size;
-
-        // first triangle
-        fAddTriDataV(x_start, y_height, z_start, 0);
-        fAddTriDataV(x_end, y_height, z_start, 0);
-        fAddTriDataV(x_start, y_height, z_end, 0);
-        fAddTriDataV(1, 1, 1, 1);
-
-
-        // second tri
-        fAddTriDataV(x_start, y_height, z_end, 0);
-        fAddTriDataV(x_end, y_height, z_start, 0);
-        fAddTriDataV(x_end, y_height, z_end, 0);
-        fAddTriDataV(1, 1, 1, 1);
-    }
-  }
-
-
-  device.queue.writeBuffer(triStateStorage, 0, triStateArray);
-}
