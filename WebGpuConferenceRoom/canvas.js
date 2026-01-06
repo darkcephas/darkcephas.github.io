@@ -9,7 +9,7 @@ var emptyCellAccelBuff;
 
 var compute_pipe;
 var commonComputeBinding;
-var ray_gen_pipe;
+var cam_ray_gen_pipe;
 var bindGroupLayout;
 var debuggingBufferStorage;
 var kDebugArraySize = 1024*4;
@@ -47,10 +47,11 @@ var tri_pos_min_z = BIG_NUM;
 var tri_pos_max_x = -BIG_NUM;
 var tri_pos_max_y = -BIG_NUM;
 var tri_pos_max_z = -BIG_NUM;
-var draw_pipe;
+var rayTracePipeline;
 var accel_pipe;
 var micro_accel_pipe;
-
+var computeCommonBindGroupLayout;
+var secondaryBindGroupLayout;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
@@ -293,27 +294,29 @@ window.onload = async function () {
     // Start a render pass 
     const encoder = device.createCommandEncoder();
 
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: context.getCurrentTexture().createView(),
-        loadOp: "clear",
-        clearValue: { r:0, g:0, b:0, a:0},
-        storeOp: "store",
-      }],
-      depthStencilAttachment: {
-        depthClearValue: 1.0,
-        depthLoadOp: "clear",
-        depthStoreOp: "discard",
-        view: rasterizerDepthTexture.createView()
-      },
-    });
-
-    pass.setPipeline(rasterRenderPipe);
-    pass.setBindGroup(0, graphicsBindGroup); // Updated!
     if(raster_mode){
-      pass.draw(numTriangles*3);
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: context.getCurrentTexture().createView(),
+          loadOp: "clear",
+          clearValue: { r:0, g:0, b:0, a:0},
+          storeOp: "store",
+        }],
+        depthStencilAttachment: {
+          depthClearValue: 1.0,
+          depthLoadOp: "clear",
+          depthStoreOp: "discard",
+          view: rasterizerDepthTexture.createView()
+        },
+      });
+
+      pass.setPipeline(rasterRenderPipe);
+      pass.setBindGroup(0, graphicsBindGroup); // Updated!
+
+        pass.draw(numTriangles*3);
+    
+      pass.end();
     }
-    pass.end();
 
 
    var buff_ret = null;
@@ -325,6 +328,8 @@ window.onload = async function () {
  
     if(debug_mode)
     {
+      // You can only map async after you submit.
+      // It is a weird quirk of the webgpu API.
       buff_ret.mapAsync(
         GPUMapMode.READ,
         0, // Offset
@@ -494,7 +499,7 @@ function setup_compute_particles() {
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
-        fn mainRayGen(  @builtin(local_invocation_index) local_idx:u32,
+        fn mainCameraRayGen(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
         @builtin( num_workgroups) num_wg:vec3u ) {
             var tile_x = local_idx % 16u;
@@ -742,7 +747,7 @@ function setup_compute_particles() {
                       var x = xx +  wg_id.x * u32( ACCEL_DIV_X / MICRO_ACCEL_DIV );
                       var y = yy +  wg_id.y * u32( ACCEL_DIV_Y / MICRO_ACCEL_DIV );
                       var z = zz +  wg_id.z * u32( ACCEL_DIV_Z / MICRO_ACCEL_DIV );
-                      let temp_count = atomicLoad(&wg_cell_count[zz][yy][xx]); ;
+                      let temp_count = atomicLoad(&wg_cell_count[zz][yy][xx]); 
                       accelTri[z][y][x][0] = temp_count;
                       if(temp_count == 0){
                         // bit mask to say we are empty (again single threaded)
@@ -776,7 +781,7 @@ function setup_compute_particles() {
 
                 if(box_intersects_triangle(cell_min, cell_max, curr_tri)){
                     var unique_idx = atomicAdd(&microAccel[z][y][x][0], 1);
-                    if(unique_idx < (64*1024-10)){// saftey check
+                    if(unique_idx < (MICRO_ACCEL_MAX_CELL_COUNT - 3)){// safety check
                       atomicStore(&microAccel[z][y][x][unique_idx + 1], tri_idx); 
                     }
                 }
@@ -787,8 +792,8 @@ function setup_compute_particles() {
       `
   });
 
-  bindGroupLayout = device.createBindGroupLayout({
-    label: "Sim",
+  computeCommonBindGroupLayout = device.createBindGroupLayout({
+    label: "compute Common bindgroup Layout",
     entries: [{
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
@@ -830,16 +835,38 @@ function setup_compute_particles() {
   });
 
 
-  const pipelineLayout = device.createPipelineLayout({
-    label: "Sim",
-    bindGroupLayouts: [bindGroupLayout],
+  secondaryBindGroupLayout = device.createBindGroupLayout({
+    label: "Secondary compute bindgroup Layout",
+    entries: [{
+      binding: 0,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: {} // uniform
+    }, {
+      binding: 1,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    }, {
+      binding: 2,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    }, 
+    {
+      binding: 7,
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format: canvasformat }
+    }]
   });
 
 
+  const computePipelineLayout = device.createPipelineLayout({
+    label: "Full pipeline layout",
+    bindGroupLayouts: [computeCommonBindGroupLayout],
+  });
 
-  draw_pipe = device.createComputePipeline({
+
+  rayTracePipeline = device.createComputePipeline({
     label: "main",
-    layout: pipelineLayout,
+    layout: computePipelineLayout,
     compute: {
       module: drawShaderModule,
       entryPoint: "main"
@@ -848,7 +875,7 @@ function setup_compute_particles() {
 
   accel_pipe = device.createComputePipeline({
     label: "accelmain",
-    layout: pipelineLayout,
+    layout: computePipelineLayout,
     compute: {
       module: drawShaderModule,
       entryPoint: "accelmain"
@@ -857,19 +884,19 @@ function setup_compute_particles() {
 
   micro_accel_pipe = device.createComputePipeline({
     label: "microAccelmain",
-    layout: pipelineLayout,
+    layout: computePipelineLayout,
     compute: {
       module: drawShaderModule,
       entryPoint: "microAccelmain"
     }
   });
 
-  ray_gen_pipe = device.createComputePipeline({
-    label: "mainRayGen",
-    layout: pipelineLayout,
+  cam_ray_gen_pipe = device.createComputePipeline({
+    label: "mainCameraRayGen",
+    layout: computePipelineLayout,
     compute: {
       module: drawShaderModule,
-      entryPoint: "mainRayGen"
+      entryPoint: "mainCameraRayGen"
     }
   });
 
@@ -880,7 +907,7 @@ function update_compute_particles(encoder, step) {
   const computePass = encoder.beginComputePass();
   commonComputeBinding = device.createBindGroup({
     label: "Common Global binding",
-    layout: bindGroupLayout,
+    layout: computeCommonBindGroupLayout,
     entries: [{
       binding: 0,
       resource: { buffer: uniformBuffer }
@@ -913,6 +940,7 @@ function update_compute_particles(encoder, step) {
   });
 
   if(step <= 1){
+    // Acceleration structures
     computePass.setPipeline(micro_accel_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
     var num_wg = Math.ceil(numTriangles/ WORKGROUP_SIZE);
@@ -925,7 +953,7 @@ function update_compute_particles(encoder, step) {
 
   // gen
   {
-    computePass.setPipeline(ray_gen_pipe);
+    computePass.setPipeline(cam_ray_gen_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
     // We break everything into 16x16 tiles which also correspond to a workgroup.
     const dispatch_width =  Math.ceil(canvas_width / 16);
@@ -935,7 +963,7 @@ function update_compute_particles(encoder, step) {
 
   // Raytrace
   {
-    computePass.setPipeline(draw_pipe);
+    computePass.setPipeline(rayTracePipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     // We break everything into 16x16 tiles which also correspond to a workgroup.
     const dispatch_width =  Math.ceil(canvas_width / 16);
