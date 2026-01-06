@@ -567,6 +567,77 @@ function setup_compute_particles() {
             rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
         }
 
+        fn RayTraceSingle(ray_orig:vec3f, ray_vec:vec3f) -> RayResult
+        {
+          var min_t = 111111.0;
+          var hit_tri = u32(0xFFFFFFFF);
+          var cell_loc_f = pos_to_cell(ray_orig);
+          var cell_loc_i = vec3i(cell_loc_f);
+          var cell_loc_remain = cell_loc_f - vec3f(cell_loc_i);
+
+          // Normalize remain to be in the positive direction
+          var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
+
+          remain_dir *= per_cell_delta(); 
+          var max_cell_count = 0u;
+          for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
+              var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
+              //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
+              if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
+                break;
+              }
+              
+              if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
+                var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
+                max_cell_count = max(max_cell_count, count_cell);
+                // cells start after zeroth index!
+                for(var i = 1u; i < count_cell + 1; i++) {
+                  var curr_tri_idx = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i];
+                  var curr_tri = triangles[curr_tri_idx];
+                  var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
+                  if(res.w > 0.0 && res.w <= min_t){
+                      // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
+                      if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
+                      {
+                        min_t = res.w;
+                        hit_tri = curr_tri_idx;
+                      }
+                    }
+                  }
+              }
+              
+              if(min_t != 111111.0 ){
+                break; // if we have a REAL hit we should exit this loop
+              }
+          
+              // Find next cell 
+
+              var ray_vec_abs = abs(ray_vec);
+              // when ray collision with next
+              var t_to_edge = remain_dir / ray_vec_abs;
+  
+              if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
+                cell_loc_i.x += i32(sign(ray_vec.x));
+                remain_dir -= t_to_edge.x * ray_vec_abs;
+                remain_dir.x = per_cell_delta().x;
+              }
+              else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
+                cell_loc_i.y += i32(sign(ray_vec.y));
+                remain_dir -= t_to_edge.y * ray_vec_abs;
+                remain_dir.y = per_cell_delta().y;
+              }
+              else {
+                cell_loc_i.z += i32(sign(ray_vec.z));
+                remain_dir -= t_to_edge.z * ray_vec_abs;
+                remain_dir.z  = per_cell_delta().z;
+              }
+          }
+
+          var ray_result: RayResult;
+          ray_result.tri = hit_tri;
+          ray_result.dist_t = min_t;
+          return ray_result;
+        }
 
         
         @compute @workgroup_size(WORKGROUP_SIZE)
@@ -576,74 +647,14 @@ function setup_compute_particles() {
             var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
             var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
 
-            var min_t = 111111.0;
-            var color_tri = vec3f(0.2,0.2,0.0);
-            var cell_loc_f = pos_to_cell(ray_orig);
-            var cell_loc_i = vec3i(cell_loc_f);
-            var cell_loc_remain = cell_loc_f - vec3f(cell_loc_i);
-
-            // Normalize remain to be in the positive direction
-            var remain_dir = select(cell_loc_remain, vec3f(1.0) - cell_loc_remain, ray_vec >= vec3f(0,0,0));
-
-            remain_dir *= per_cell_delta(); 
-            var max_cell_count = 0u;
-            for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
-                var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
-                //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
-                if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
-                  break;
-                }
-                
-                if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
-                  var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
-                  max_cell_count = max(max_cell_count, count_cell);
-                  // cells start after zeroth index!
-                  for(var i = 1u; i < count_cell + 1; i++) {
-                    var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
-                    var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
-                    if(res.w > 0.0 && res.w <= min_t){
-                        // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
-                        if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
-                        {
-                          min_t = res.w;
-                          color_tri = curr_tri.col;
-                        }
-                      }
-                    }
-                }
-                
-                if(min_t != 111111.0 ){
-                  // if we have a REAL hit we should exit this loop
-                  break;
-                }
-            
-                // Find next cell 
-
-                var ray_vec_abs = abs(ray_vec);
-                // when ray collision with next
-                var t_to_edge = remain_dir / ray_vec_abs;
-    
-                if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
-                  cell_loc_i.x += i32(sign(ray_vec.x));
-                  remain_dir -= t_to_edge.x * ray_vec_abs;
-                  remain_dir.x = per_cell_delta().x;
-                }
-                else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
-                  cell_loc_i.y += i32(sign(ray_vec.y));
-                  remain_dir -= t_to_edge.y * ray_vec_abs;
-                  remain_dir.y = per_cell_delta().y;
-                }
-                else {
-                  cell_loc_i.z += i32(sign(ray_vec.z));
-                  remain_dir -= t_to_edge.z * ray_vec_abs;
-                  remain_dir.z  = per_cell_delta().z;
-                }
-                
-            }
+            var ray_result = RayTraceSingle(ray_orig, ray_vec);
 
             var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
 
+            ray_result.px = pix_x;
+            ray_result.py = pix_y;
+            var color_tri = triangles[ray_result.tri].col;
             let pix_pos = vec2u(pix_x, pix_y);
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
