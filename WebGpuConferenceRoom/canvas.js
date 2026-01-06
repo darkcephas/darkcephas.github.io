@@ -39,7 +39,7 @@ const kSizeBytesInU32 = 4;
 var time_t = 0.0;
 var rasterizerDepthTexture;
 var triAccelBuffer;
-var epsilon2 = 0.000001;
+
 var BIG_NUM = 100000.0;
 var tri_pos_min_x = BIG_NUM;
 var tri_pos_min_y = BIG_NUM;
@@ -1098,13 +1098,16 @@ function ImportTriangleData(){
   var triDataPutIdx = 0;
   const scalingXYZ = 0.03;
   const bRandColor = false;
+  function fAddTriData(single_data){
+    triStateArray[triDataPutIdx++] = single_data;
+  }
   while (triDataInIdx < meshData.length) {
     // v0, v1, v2, col (3 idx)
     for (var i = 0; i < 4; i++) {
       if(i == 3 && bRandColor){
-        triStateArray[triDataPutIdx++] = Math.random();
-        triStateArray[triDataPutIdx++] = Math.random();
-        triStateArray[triDataPutIdx++] = Math.random();
+        fAddTriData(Math.random());
+        fAddTriData(Math.random());
+        fAddTriData(Math.random());
         triDataInIdx+=3;
       }
       else
@@ -1124,21 +1127,26 @@ function ImportTriangleData(){
           tri_pos_min_z = Math.min(z, tri_pos_min_z);
         }
 
-        triStateArray[triDataPutIdx++] = x;
-        triStateArray[triDataPutIdx++] = y;
-        triStateArray[triDataPutIdx++] = z;
+        fAddTriData(x);
+        fAddTriData(y);
+        fAddTriData(z);
       }
-      triStateArray[triDataPutIdx++] = 0.0;
+      fAddTriData(0.0);
     }
   }
 
+  // Extend out a tiny bit to avoid float issues
+  var epsilon2 = 0.000001;
   tri_pos_max_x += epsilon2;
   tri_pos_max_y += epsilon2;
   tri_pos_max_z += epsilon2;
-
   tri_pos_min_x -= epsilon2;
   tri_pos_min_y -= epsilon2;
   tri_pos_min_z -= epsilon2;
+
+  function fAddTriDataV(xx, yy,zz,ww){
+    fAddTriData(xx); fAddTriData(yy); fAddTriData(zz); fAddTriData(ww);
+  }
 
   // Manual lights for conference room
   for(var i=0; i < numLightsX; i++){
@@ -1155,47 +1163,17 @@ function ImportTriangleData(){
         var z_end = (step_z * (j+1)) + tri_pos_min_z -inset_size;
 
         // first triangle
-        triStateArray[triDataPutIdx++] = x_start;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_start;
-        triStateArray[triDataPutIdx++] = 0.0;
-        
-        triStateArray[triDataPutIdx++] = x_end;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_start;
-        triStateArray[triDataPutIdx++] = 0.0;
+        fAddTriDataV(x_start, y_height, z_start, 0);
+        fAddTriDataV(x_end, y_height, z_start, 0);
+        fAddTriDataV(x_start, y_height, z_end, 0);
+        fAddTriDataV(1, 1, 1, 1);
 
-        triStateArray[triDataPutIdx++] = x_start;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_end;
-        triStateArray[triDataPutIdx++] = 0.0;
-
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
 
         // second tri
-        triStateArray[triDataPutIdx++] = x_start;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_end;
-        triStateArray[triDataPutIdx++] = 0.0;
-
-        triStateArray[triDataPutIdx++] = x_end;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_start;
-        triStateArray[triDataPutIdx++] = 0.0;
-        
-
-        triStateArray[triDataPutIdx++] = x_end;
-        triStateArray[triDataPutIdx++] = y_height;
-        triStateArray[triDataPutIdx++] = z_end;
-        triStateArray[triDataPutIdx++] = 0.0;
-
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
-        triStateArray[triDataPutIdx++] = 1.0;
+        fAddTriDataV(x_start, y_height, z_end, 0);
+        fAddTriDataV(x_end, y_height, z_start, 0);
+        fAddTriDataV(x_end, y_height, z_end, 0);
+        fAddTriDataV(1, 1, 1, 1);
     }
   }
 
