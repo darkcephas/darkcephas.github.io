@@ -54,6 +54,7 @@ var computeCommonBindGroupLayout;
 var secondaryBindGroupLayout;
 var secondaryUniformBuffer;
 var secondaryComputeBinding;
+var bounceGenPipeline;
 
 function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
@@ -389,7 +390,7 @@ function setup_compute_particles() {
         };
 
         struct RayResult {
-          rr:vec3f, idx:u32,
+          tri:u32, dist_t:f32, px:u32, py:u32
         };
 
 
@@ -539,13 +540,42 @@ function setup_compute_particles() {
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
+        fn mainBounceGen(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u ) {
+            var tile_x = local_idx % 16u;
+            var tile_y = local_idx / 16u;
+
+            var hit_ray_dir =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+            var hit_ray_pos =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+ 
+            var pix_x = tile_x + wg_id.x * 16u;
+            var pix_y = tile_y + wg_id.y * 16u;
+            var tri_idx = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+            var curr_tri = triangles[tri_idx];
+            var normal = normalize(cross(curr_tri.pos1 - curr_tri.pos0, curr_tri.pos2 - curr_tri.pos0));
+            if(dot(normal, hit_ray_dir) > 0.0){
+               // normal should point the opposite of the cam dir.
+               // Technically we should know this but we dont because bad mesh data
+               normal = -normal; 
+            }
+
+            // Back off the surface a bit 
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig = hit_ray_pos - hit_ray_dir * 0.00001;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec = normal;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px = pix_x;
+            rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
+        }
+
+
+        
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn main(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
         @builtin( num_workgroups) num_wg:vec3u) {
             var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
             var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
 
-            const wg_size = WORKGROUP_SIZE;
             var min_t = 111111.0;
             var color_tri = vec3f(0.2,0.2,0.0);
             var cell_loc_f = pos_to_cell(ray_orig);
@@ -565,11 +595,10 @@ function setup_compute_particles() {
                 }
                 
                 if((emptyCellAccel[cell_loc_i.z][cell_loc_i.x] & (1u<<u32(cell_loc_i.y))) == 0){
-                var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
-                max_cell_count = max(max_cell_count, count_cell);
-                // cells start after zeroth
-
-                for(var i = 1u; i < count_cell + 1; i++) {
+                  var count_cell = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][0];
+                  max_cell_count = max(max_cell_count, count_cell);
+                  // cells start after zeroth index!
+                  for(var i = 1u; i < count_cell + 1; i++) {
                     var curr_tri = triangles[accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i]];
                     var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
                     if(res.w > 0.0 && res.w <= min_t){
@@ -927,6 +956,16 @@ function setup_compute_particles() {
     }
   });
 
+  bounceGenPipeline = device.createComputePipeline({
+    label: "mainBounceGen",
+    layout: computePipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "mainBounceGen"
+    }
+  });
+  
+
   secondaryUniformBuffer = device.createBuffer({
     label: "Secondary Uniforms",
     size: 128,
@@ -964,7 +1003,7 @@ function update_compute_particles(encoder, step) {
     ],
   });
 
-  if(step <= 1){
+  if(step == 1){
     // Acceleration structures
     computePass.setPipeline(micro_accel_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
@@ -978,7 +1017,7 @@ function update_compute_particles(encoder, step) {
     computePass.dispatchWorkgroups(MICRO_ACCEL_DIV, MICRO_ACCEL_DIV, MICRO_ACCEL_DIV);
   }
 
-  // gen
+  // cam gen
   {
     computePass.setPipeline(cam_ray_gen_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
@@ -998,7 +1037,17 @@ function update_compute_particles(encoder, step) {
     const dispatch_width =  Math.ceil(canvas_width / 16);
     const dispatch_height =  Math.ceil(canvas_height / 16);
     computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+  }
 
+  // Fuzzy Bounce gen (takes hits and converts to new rays(norms))
+  {
+    computePass.setPipeline(bounceGenPipeline);
+    computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
+    // We break everything into 16x16 tiles which also correspond to a workgroup.
+    const dispatch_width =  Math.ceil(canvas_width / 16);
+    const dispatch_height =  Math.ceil(canvas_height / 16);
+    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
   }
 
   computePass.end();
