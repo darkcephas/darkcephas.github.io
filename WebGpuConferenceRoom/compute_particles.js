@@ -593,7 +593,7 @@ function update_compute_particles(triStorageBuffer, triAccelBuffer, microTriAcce
   }
 
   // Raytrace
-  for(var i=0;i <16;i++)
+  for(var i=0;i <1;i++)
   {
     computePass.setPipeline(draw_pipe);
     computePass.setBindGroup(0, compute_binding);
