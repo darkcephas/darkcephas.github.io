@@ -193,8 +193,9 @@ window.onload = async function () {
   }
 
   function onResizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // fullscreen code
+    //canvas.width = window.innerWidth;
+    //canvas.height = window.innerHeight;
     canvas_width = canvas.width;
     canvas_height = canvas.height;
     canvas_width_block  =  Math.ceil(canvas_width / 16);
@@ -672,6 +673,7 @@ function setup_compute_particles() {
             var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
             // cam transform haxz
             homo_xy *= 0.65;// fov
+            homo_xy.x *= uni.canvas_size.x/uni.canvas_size.y;
             homo_xy.y = - homo_xy.y;
             homo_xy.x = - homo_xy.x;
             var ray_orig = vec3(0.75,0.25, 0);
@@ -839,7 +841,7 @@ function setup_compute_particles() {
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
        
             var emissive = 0.0;
-            var num_samples = 3u;
+            var num_samples = 1u;
             var roll_mod = u32(uni.time_in * 121231.2131);
             if(color_tri.w == 0.0){
             for(var q=0u;q<num_samples ;q++){
