@@ -819,7 +819,7 @@ function setup_compute_particles() {
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
               //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
-              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+             // textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
             }
             rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx] = ray_result;
         }
