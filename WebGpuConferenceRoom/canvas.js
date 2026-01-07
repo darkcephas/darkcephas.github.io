@@ -674,7 +674,7 @@ function setup_compute_particles() {
             homo_xy *= 0.7;// fov
             homo_xy.y = - homo_xy.y;
             homo_xy.x = - homo_xy.x;
-            var ray_orig = vec3(0.4,0.3, 0);
+            var ray_orig = vec3(0.55,0.25, 0);
             var ray_vec = normalize(vec3f(homo_xy, 1.0));
             // let rot =  uni.time_in *0.1-1;  
             let rot =  uni.time_in *0.7-1;  
