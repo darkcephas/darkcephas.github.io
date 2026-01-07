@@ -16,6 +16,7 @@ var kDebugArraySize = 1024*4;
 const RND_UNIT_SPHERE_SIZE = 1024;
 var kRndUnitArraySize = RND_UNIT_SPHERE_SIZE*4*4;
 var wait_for_debug = false;
+var kGlobalComputeStateSize = 64;
 
 const WORKGROUP_SIZE = 256;
 const ACCEL_DIV_X = 128;
@@ -54,12 +55,32 @@ var accel_pipe;
 var micro_accel_pipe;
 var computeCommonBindGroupLayout;
 var secondaryBindGroupLayout;
-var secondaryUniformBuffer;
 var secondaryComputeBinding;
 var bounceGenPipeline;
 var rndUnitSphereBuffer;
 var bounceSamplePipeline;
+var globalComputeStateBuffer;
+var gNumSamples = 1;
 
+const RENDER_MODE_PRIMARY = 1;
+const RENDER_MODE_BOUNCE = 2;
+const RENDER_MODE_BOUNCE2X = 3;
+const RENDER_MODE_AO = 4;
+const RENDER_MODE_REFLECT = 5;
+
+var gRenderMode = RENDER_MODE_PRIMARY;
+
+function PollUI() {
+  gRenderMode = document.querySelector("#radio_primary").checked ? RENDER_MODE_PRIMARY: gRenderMode;
+  gRenderMode = document.querySelector("#radio_bounce").checked ? RENDER_MODE_BOUNCE: gRenderMode;
+  gRenderMode = document.querySelector("#radio_bounce2x").checked ? RENDER_MODE_BOUNCE2X: gRenderMode;
+  gRenderMode = document.querySelector("#radio_near_ao").checked ? RENDER_MODE_AO: gRenderMode;
+  gRenderMode = document.querySelector("#radio_reflect").checked ? RENDER_MODE_REFLECT: gRenderMode;
+  gNumSamples = Number(document.getElementById("sel_num_samples").value);
+  var testresulttext = document.querySelector("#sel_num_samples_text");
+  testresulttext.innerHTML = "Number of samples ="  + String(gNumSamples);
+  
+}
 
 
 function ImportTriangleData(){
@@ -85,16 +106,17 @@ function ImportTriangleData(){
   var triDataPutIdx = 0;
   const scalingXYZ = 0.03;
   const bRandColor = false;
+  const bWhiteColor = false;
   function fAddTriData(single_data){
     triStateArray[triDataPutIdx++] = single_data;
   }
   while (triDataInIdx < meshData.length) {
     // v0, v1, v2, col (3 idx)
     for (var i = 0; i < 4; i++) {
-      if(i == 3 && bRandColor){
-        fAddTriData(Math.random());
-        fAddTriData(Math.random());
-        fAddTriData(Math.random());
+      if(i == 3 && (bRandColor|| bWhiteColor)){
+        fAddTriData(bRandColor ? Math.random(): 1.0);
+        fAddTriData(bRandColor ? Math.random(): 1.0);
+        fAddTriData(bRandColor ? Math.random(): 1.0);
         triDataInIdx+=3;
       }
       else
@@ -172,7 +194,8 @@ function UpdateUniforms() {
   // Create a uniform buffer that describes the grid.
   const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
                                         tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
-                                        tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0]);
+                                        tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0,
+                                        gNumSamples, 0, 0 ,0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 
@@ -234,11 +257,12 @@ window.onload = async function () {
     // drawStuff(); 
   }
 
-  // Features requests (limits)
+  // Features requests (and limits)
   {
     canvasformat = navigator.gpu.getPreferredCanvasFormat();
     var reqFeatures = canvasformat == 'bgra8unorm' ? ['bgra8unorm-storage'] : [];
-    device = await adapter.requestDevice({ requiredFeatures:reqFeatures });
+    var reqLimits = {maxStorageBuffersPerShaderStage: 10};
+    device = await adapter.requestDevice({ requiredFeatures:reqFeatures, requiredLimits:reqLimits });
   }
   
 
@@ -403,8 +427,8 @@ window.onload = async function () {
   setup_compute_particles();
 
   let step = 0; // Track how many simulation steps have been run        
-  function updateGrid() {
-  
+  function updateFunction() {
+    PollUI();
     step++; // Increment the step count
     UpdateUniforms();
     // Start a render pass 
@@ -463,22 +487,28 @@ window.onload = async function () {
 
     time_t = time_t + 0.016;
     if(!debug_mode){
-      window.requestAnimationFrame(updateGrid);
+      window.requestAnimationFrame(updateFunction);
     }
   }
-  window.requestAnimationFrame(updateGrid);
+  window.requestAnimationFrame(updateFunction);
 }
 
 
 
 function setup_compute_particles() {
   debuggingBufferStorage =
-  device.createBuffer({
-    label: "debugging storage result",
-    size: kDebugArraySize,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-  });
+    device.createBuffer({
+      label: "debugging storage result",
+      size: kDebugArraySize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
 
+
+  globalComputeStateBuffer = device.createBuffer({
+    label: "global state array",
+    size: kGlobalComputeStateSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
 
 
   rndUnitSphereBuffer = device.createBuffer({
@@ -496,7 +526,6 @@ function setup_compute_particles() {
         var x = (Math.random()-0.5)*2.0;
         var y = (Math.random()-0.5)*2.0;
         var z = (Math.random()-0.5)*2.0;
-
         var total_length = Math.sqrt(x*x + y*y + z*z);
         if(total_length > 0.01 && total_length <= 1.0){
           x = x / total_length;
@@ -528,7 +557,8 @@ function setup_compute_particles() {
       struct Uniforms{
         canvas_size: vec2f, canvas_stride: f32, time_in:f32,
         tri_pos_min: vec4f,
-        tri_pos_max: vec4f
+        tri_pos_max: vec4f,
+        num_samples:f32, render_mode:f32,
       };
 
 
@@ -541,6 +571,15 @@ function setup_compute_particles() {
           tri:u32, dist_t:f32, px:u32, py:u32
         };
 
+        struct GlobalState {
+           intra_ctn:u32,
+           unused_1:u32,
+           unused_2:u32,
+           unused_3:u32,
+           unused_vec1:vec4u,
+           unused_vec2:vec4u,
+           unused_vec3:vec4u,
+        };
 
         const ACCEL_DIV_X =  ${ACCEL_DIV_X};
         const ACCEL_DIV_Y =  ${ACCEL_DIV_Y};
@@ -550,6 +589,8 @@ function setup_compute_particles() {
         const ACCEL_MAX_CELL_COUNT = ${ACCEL_MAX_CELL_COUNT};
         const WORKGROUP_SIZE = ${WORKGROUP_SIZE};
         const RND_UNIT_SPHERE_SIZE = ${RND_UNIT_SPHERE_SIZE};
+        const RENDER_MODE_PRIMARY = ${RENDER_MODE_PRIMARY};
+         const RENDER_MODE_PRIMARY = ${RENDER_MODE_PRIMARY};
 
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
@@ -572,12 +613,9 @@ function setup_compute_particles() {
         @group(0) @binding(5) var<storage, read_write> rndUnit: array<vec4f, RND_UNIT_SPHERE_SIZE>;
         @group(0) @binding(6) var<storage, read_write> dbg: array<f32>;
 
-        struct AltUniforms{
-           data:vec4f
-        };
 
         // Fast changing
-        @group(1) @binding(0) var<uniform> altUni: AltUniforms;
+        @group(1) @binding(0) var<storage, read_write> gState: GlobalState;
         @group(1) @binding(1) var<storage, read_write> rayIn: array<array<RayIn, WORKGROUP_SIZE>>;
         @group(1) @binding(2) var<storage, read_write> rayResult: array<array<RayResult, WORKGROUP_SIZE>>;
         @group(1) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
@@ -676,7 +714,7 @@ function setup_compute_particles() {
             homo_xy.x *= uni.canvas_size.x/uni.canvas_size.y;
             homo_xy.y = - homo_xy.y;
             homo_xy.x = - homo_xy.x;
-            var ray_orig = vec3(0.75,0.25, 0);
+            var ray_orig = vec3(0.75,0.27, 0);
             var ray_vec = normalize(vec3f(homo_xy, 1.0));
             // let rot =  uni.time_in *0.1-1;  
             let rot =  uni.time_in *0.7-1;  
@@ -821,7 +859,7 @@ function setup_compute_particles() {
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
               //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
-             // textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
             }
             rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx] = ray_result;
         }
@@ -841,14 +879,14 @@ function setup_compute_particles() {
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
        
             var emissive = 0.0;
-            var num_samples = 1u;
+            var num_samples =  u32(uni.num_samples);
             var roll_mod = u32(uni.time_in * 121231.2131);
             if(color_tri.w == 0.0){
             for(var q=0u;q<num_samples ;q++){
               // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
               var rnd_linear =  ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
-              var mod_ray_vec = normalize(ray_vec + rndUnit[( rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
-              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 10000.0);
+              var mod_ray_vec = normalize(ray_vec + rndUnit[(roll_mod+ rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
+              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 1000.0);
               emissive += triangles[ray_result.tri].col.w;
               }
             }
@@ -860,7 +898,6 @@ function setup_compute_particles() {
             let pix_pos = vec2u(pix_x, pix_y);
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
-         
               emissive += color_tri.w;
               textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz * (emissive), 1));
             }
@@ -875,7 +912,7 @@ function setup_compute_particles() {
 
           // fast overlap test 
           if(all(tri_min <= box_max) && all(tri_max >= box_min)){
-       
+             
               // any vert inside
               // DDDDEBUG
               if(true){
@@ -1085,11 +1122,13 @@ function setup_compute_particles() {
 
   secondaryBindGroupLayout = device.createBindGroupLayout({
     label: "Secondary compute bindgroup Layout",
-    entries: [{
+    entries: [
+     {
       binding: 0,
       visibility: GPUShaderStage.COMPUTE,
-      buffer: {} // uniform
-    }, {
+      buffer: { type: "storage" }
+    },
+     {
       binding: 1,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "storage" }
@@ -1202,30 +1241,20 @@ function setup_compute_particles() {
   
   
 
-  secondaryUniformBuffer = device.createBuffer({
-    label: "Secondary Uniforms",
-    size: 128,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
+
 
 }
 
 function update_compute_particles(encoder, step) {
- // encoder.clearBuffer(rayInBufferStorage);
 
- {
-  const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
-      tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
-      tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0]);
-    device.queue.writeBuffer(secondaryUniformBuffer, 0, uniformArray);
- }
   const computePass = encoder.beginComputePass();
   var secondaryComputeBinding = device.createBindGroup({
     label: "Secondary alt binding",
     layout: secondaryBindGroupLayout,
-    entries: [{
+    entries: [
+    {
       binding: 0,
-      resource: { buffer: secondaryUniformBuffer }
+      resource: { buffer: globalComputeStateBuffer },
     },
     {
       binding: 1,
@@ -1258,10 +1287,7 @@ function update_compute_particles(encoder, step) {
     computePass.setPipeline(cam_ray_gen_pipe);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
-    // We break everything into 16x16 tiles which also correspond to a workgroup.
-    const dispatch_width =  Math.ceil(canvas_width / 16);
-    const dispatch_height =  Math.ceil(canvas_height / 16);
-    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
   }
 
   // Raytrace
@@ -1269,33 +1295,26 @@ function update_compute_particles(encoder, step) {
     computePass.setPipeline(rayTracePipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
-    // We break everything into 16x16 tiles which also correspond to a workgroup.
-    const dispatch_width =  Math.ceil(canvas_width / 16);
-    const dispatch_height =  Math.ceil(canvas_height / 16);
-    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
   }
 
+
   // Fuzzy Bounce gen (takes hits and converts to new rays(norms))
+  if(gRenderMode != RENDER_MODE_PRIMARY)
   {
     computePass.setPipeline(bounceGenPipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
-    // We break everything into 16x16 tiles which also correspond to a workgroup.
-    const dispatch_width =  Math.ceil(canvas_width / 16);
-    const dispatch_height =  Math.ceil(canvas_height / 16);
-    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
   }
 
   // Raytrace
-  if(true)
+  if(gRenderMode != RENDER_MODE_PRIMARY)
   {
     computePass.setPipeline(bounceSamplePipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
-    // We break everything into 16x16 tiles which also correspond to a workgroup.
-    const dispatch_width =  Math.ceil(canvas_width / 16);
-    const dispatch_height =  Math.ceil(canvas_height / 16);
-    computePass.dispatchWorkgroups(dispatch_width, dispatch_height);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
   }
 
   computePass.end();

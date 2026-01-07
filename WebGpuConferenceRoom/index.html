@@ -1,23 +1,48 @@
 <!doctype html>
 
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>Conference Room</title>
-    <script src="cr_data.js"></script>
-    <script src="canvas.js"></script>
-  </head>
-  <body style="background-color:rgb(0, 0, 0)" >
+
+<head>
+  <meta charset="utf-8">
+  <title>Conference Room</title>
+  <script src="cr_data.js"></script>
+  <script src="canvas.js"></script>
+</head>
+
+<body style="background-color:rgb(0, 0, 0)">
 
 
-    <div id="overlaytextid" style="float:left;width:1040px" >
-      <canvas width="1024" height="768" id="canvasid"  ></canvas>
+  <div id="overlaytextid" style="float:left;width:1040px">
+    <canvas width="1024" height="768" id="canvasid"></canvas>
+  </div>
+
+  <div id="overlaytextid" style="color:rgb(255,255,255)">
+    Conference Room
+    <div>
+      <input type="checkbox" id="cam_auto_rotate" name="cam_auto_rotate" value="enabled_0" checked="checked">
+      <label for="cam_auto_rotate">Auto rotate camera</label>
     </div>
-    
-    <div id="overlaytextid" style="color:rgb(255,255,255)">
-      Conference Room
+    <div>
+      <p>Render module</p>
+      <input type="radio" id="radio_primary" name="render_mode_selection" value="value_1" checked="checked">
+      <label for="value_1">primary</label>
+      <input type="radio" id="radio_bounce" name="render_mode_selection" value="value_2">
+      <label for="value_2">bounce</label>
+      <input type="radio" id="radio_bounce2x" name="render_mode_selection" value="value_3">
+      <label for="value_3">bounce2x</label>
+      <input type="radio" id="radio_near_ao" name="render_mode_selection" value="value_4">
+      <label for="value_4">near-AO</label>
+      <input type="radio" id="radio_reflect" name="render_mode_selection" value="value_5">
+      <label for="value_5">reflect</label>
     </div>
-    <script type="module">
-    </script>
-  </body>
+
+    <div>
+      <p id="sel_num_samples_text"> init </p>
+      <input type="range" min="1" max="32" value="1" class="slider" step="1" style="width:300px" id="sel_num_samples">
+    </div>
+  </div>
+  <script type="module">
+  </script>
+</body>
+
 </html>
