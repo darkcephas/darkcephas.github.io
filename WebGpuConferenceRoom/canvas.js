@@ -671,10 +671,10 @@ function setup_compute_particles() {
 
             var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
             // cam transform haxz
-            homo_xy *= 0.7;// fov
+            homo_xy *= 0.65;// fov
             homo_xy.y = - homo_xy.y;
             homo_xy.x = - homo_xy.x;
-            var ray_orig = vec3(0.55,0.25, 0);
+            var ray_orig = vec3(0.75,0.25, 0);
             var ray_vec = normalize(vec3f(homo_xy, 1.0));
             // let rot =  uni.time_in *0.1-1;  
             let rot =  uni.time_in *0.7-1;  
@@ -839,7 +839,7 @@ function setup_compute_particles() {
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
        
             var emissive = 0.0;
-            var num_samples = 5u;
+            var num_samples = 3u;
             var roll_mod = u32(uni.time_in * 121231.2131);
             if(color_tri.w == 0.0){
             for(var q=0u;q<num_samples ;q++){
