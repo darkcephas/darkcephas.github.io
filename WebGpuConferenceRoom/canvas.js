@@ -840,13 +840,13 @@ function setup_compute_particles() {
        
             var emissive = 0.0;
             var num_samples = 5u;
-            //var roll_mod = u32(uni.time_in * 121231.2131);
+            var roll_mod = u32(uni.time_in * 121231.2131);
             if(color_tri.w == 0.0){
             for(var q=0u;q<num_samples ;q++){
               // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
-              var rnd_linear = ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
-              var mod_ray_vec = normalize(ray_vec + rndUnit[rnd_linear % RND_UNIT_SPHERE_SIZE].xyz);
-              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 2.0);
+              var rnd_linear =  ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
+              var mod_ray_vec = normalize(ray_vec + rndUnit[(roll_mod + rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
+              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 10000.0);
               emissive += triangles[ray_result.tri].col.w;
               }
             }
