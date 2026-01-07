@@ -676,7 +676,8 @@ function setup_compute_particles() {
             homo_xy.x = - homo_xy.x;
             var ray_orig = vec3(0.4,0.3, 0);
             var ray_vec = normalize(vec3f(homo_xy, 1.0));
-            let rot =  uni.time_in *0.1-1;  
+            // let rot =  uni.time_in *0.1-1;  
+            let rot =  uni.time_in *0.7-1;  
             {
               let s_pos = ray_vec;
               ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
@@ -718,9 +719,10 @@ function setup_compute_particles() {
             rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py = pix_y;
         }
 
-        fn RayTraceSingle(ray_orig:vec3f, ray_vec:vec3f) -> RayResult
+        fn RayTraceSingle(ray_orig:vec3f, ray_vec:vec3f, max_t: f32) -> RayResult
         {
-          var min_t = 111111.0;
+          var min_t = max_t;
+          var curr_cell_t = 0.0;
           var hit_tri = u32(0xFFFFFFFF);
           var cell_loc_f = pos_to_cell(ray_orig);
           var cell_loc_i = vec3i(cell_loc_f);
@@ -731,9 +733,9 @@ function setup_compute_particles() {
 
           remain_dir *= per_cell_delta(); 
           var max_cell_count = 0u;
+          var cell_run_t = 0.0;
           for(var finite_loop = 0u; finite_loop < 300; finite_loop++) {
               var max_accel_size = vec3i(ACCEL_DIV_X, ACCEL_DIV_Y,ACCEL_DIV_Z);
-              //cell_loc_i = vec3i(pos_to_cell(ray_orig +ray_vec*f32(finite_loop) *0.01 ));
               if(any(cell_loc_i < vec3i(0)) || any(cell_loc_i >= max_accel_size) ){
                 break;
               }
@@ -746,7 +748,7 @@ function setup_compute_particles() {
                   var curr_tri_idx = accelTri[cell_loc_i.z][cell_loc_i.y][cell_loc_i.x][i];
                   var curr_tri = triangles[curr_tri_idx];
                   var res = ray_intersects_triangle(ray_orig, ray_vec, curr_tri);
-                  if(res.w > 0.0 && res.w <= min_t){
+                  if(res.w > 0.0 && res.w < min_t){
                       // WE MUST DO BOX INTERSECTION TEST or tracker for hit testing
                       if( all(cell_loc_i == vec3i(pos_to_cell(res.xyz))))
                       {
@@ -757,7 +759,7 @@ function setup_compute_particles() {
                   }
               }
               
-              if(min_t != 111111.0 ){
+              if(min_t != max_t ){
                 break; // if we have a REAL hit we should exit this loop
               }
           
@@ -769,18 +771,25 @@ function setup_compute_particles() {
   
               if(t_to_edge.x <= t_to_edge.y && t_to_edge.x <= t_to_edge.z) {
                 cell_loc_i.x += i32(sign(ray_vec.x));
+                cell_run_t += t_to_edge.x;
                 remain_dir -= t_to_edge.x * ray_vec_abs;
                 remain_dir.x = per_cell_delta().x;
               }
               else if(t_to_edge.y <= t_to_edge.x && t_to_edge.y <= t_to_edge.z) {
                 cell_loc_i.y += i32(sign(ray_vec.y));
+                cell_run_t += t_to_edge.y;
                 remain_dir -= t_to_edge.y * ray_vec_abs;
                 remain_dir.y = per_cell_delta().y;
               }
               else {
                 cell_loc_i.z += i32(sign(ray_vec.z));
+                cell_run_t += t_to_edge.z;
                 remain_dir -= t_to_edge.z * ray_vec_abs;
                 remain_dir.z  = per_cell_delta().z;
+              }
+                
+              if(cell_run_t >= max_t){
+                break;
               }
           }
 
@@ -798,7 +807,7 @@ function setup_compute_particles() {
             var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
             var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
 
-            var ray_result = RayTraceSingle(ray_orig, ray_vec);
+            var ray_result = RayTraceSingle(ray_orig, ray_vec, 10000.0);
 
             var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
@@ -823,29 +832,35 @@ function setup_compute_particles() {
             var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
             var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
 
+            var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+            var color_tri = triangles[orig_tri].col;
+
             var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
        
             var emissive = 0.0;
-            var num_samples = 2u;
+            var num_samples = 5u;
             //var roll_mod = u32(uni.time_in * 121231.2131);
+            if(color_tri.w == 0.0){
             for(var q=0u;q<num_samples ;q++){
               // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
-              ray_vec = normalize(ray_vec + rndUnit[(q*1666 + ((pix_x*113)^(pix_y*3))) % RND_UNIT_SPHERE_SIZE].xyz);
-              var ray_result = RayTraceSingle(ray_orig, ray_vec);
+              var rnd_linear = ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
+              var mod_ray_vec = normalize(ray_vec + rndUnit[rnd_linear % RND_UNIT_SPHERE_SIZE].xyz);
+              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 2.0);
               emissive += triangles[ray_result.tri].col.w;
+              }
             }
-           emissive *= 1.0/f32( num_samples);
-          emissive*=2.0;
+            emissive *= 1.0/f32( num_samples);
+            emissive*=2.5;
+
           // ray_result.px = pix_x;
             //ray_result.py = pix_y;
             let pix_pos = vec2u(pix_x, pix_y);
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
-              var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
-              var color_tri = triangles[orig_tri].col;
+         
               emissive += color_tri.w;
-              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz *emissive, 1));
+              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz * (emissive), 1));
             }
         }
 
