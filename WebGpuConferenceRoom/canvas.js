@@ -61,6 +61,8 @@ var rndUnitSphereBuffer;
 var bounceSamplePipeline;
 var globalComputeStateBuffer;
 var gNumSamples = 1;
+var gCamTheta = 0.0;
+var gCamAutoRotEnabled = true;
 
 const RENDER_MODE_PRIMARY = 1;
 const RENDER_MODE_BOUNCE = 2;
@@ -79,7 +81,7 @@ function PollUI() {
   gNumSamples = Number(document.getElementById("sel_num_samples").value);
   var testresulttext = document.querySelector("#sel_num_samples_text");
   testresulttext.innerHTML = "Number of samples ="  + String(gNumSamples);
-  
+  gCamAutoRotEnabled = document.getElementById('cam_auto_rotate').checked;
 }
 
 
@@ -195,7 +197,7 @@ function UpdateUniforms() {
   const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
                                         tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
                                         tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0,
-                                        gNumSamples, gRenderMode, 0 ,0]);
+                                        gNumSamples, gRenderMode, gCamTheta ,0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 
@@ -486,6 +488,9 @@ window.onload = async function () {
     }
 
     time_t = time_t + 0.016;
+    if(gCamAutoRotEnabled){
+      gCamTheta = gCamTheta + 0.016;
+    }
     if(!debug_mode){
       window.requestAnimationFrame(updateFunction);
     }
@@ -558,7 +563,7 @@ function setup_compute_particles() {
         canvas_size: vec2f, canvas_stride: f32, time_in:f32,
         tri_pos_min: vec4f,
         tri_pos_max: vec4f,
-        num_samples:f32, render_mode:f32,
+        num_samples:f32, render_mode:f32, cam_theta_rot:f32,
       };
 
 
@@ -724,7 +729,7 @@ function setup_compute_particles() {
             var ray_orig = vec3(0.75,0.27, 0);
             var ray_vec = normalize(vec3f(homo_xy, 1.0));
             // let rot =  uni.time_in *0.1-1;  
-            let rot =  uni.time_in *0.7-1;  
+            let rot =  uni.cam_theta_rot *0.7-1;  
             {
               let s_pos = ray_vec;
               ray_vec.x= s_pos.x * cos(rot) + s_pos.z * -sin(rot);
