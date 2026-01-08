@@ -13,7 +13,7 @@ var cam_ray_gen_pipe;
 var bindGroupLayout;
 var debuggingBufferStorage;
 var kDebugArraySize = 1024*4;
-const RND_UNIT_SPHERE_SIZE = 1024;
+const RND_UNIT_SPHERE_SIZE = 4096;
 var kRndUnitArraySize = RND_UNIT_SPHERE_SIZE*4*4;
 var wait_for_debug = false;
 var kGlobalComputeStateSize = 64;
@@ -63,6 +63,8 @@ var globalComputeStateBuffer;
 var gNumSamples = 1;
 var gCamTheta = 0.0;
 var gCamAutoRotEnabled = true;
+var vizBufferStorage;
+var vizRenderPipeline;
 
 const RENDER_MODE_PRIMARY = 1;
 const RENDER_MODE_BOUNCE = 2;
@@ -160,8 +162,9 @@ function ImportTriangleData(){
   }
 
   // Manual lights for conference room
-  for(var i=0; i < numLightsX; i++){
-    for(var j=0; j < numLightsZ; j++){
+  var light_isolation = 0;
+  for(var i=light_isolation; i < numLightsX-light_isolation; i++){
+    for(var j=light_isolation; j < numLightsZ-light_isolation; j++){
         // 4x4 steps but inset actual rect
         var y_height = tri_pos_max_y -0.0001;
         var inset_size = 0.003;
@@ -241,6 +244,15 @@ window.onload = async function () {
     device.createBuffer({
       label: "RayIn buffer",
       size: numRayResultBufferTotalBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    const numVizBufferElementBytes = 4*4; // RayResult
+    const numVizBufferTotalBytes = numVizBufferElementBytes * canvas_width_block * canvas_height_block * tileBlockSize;
+    vizBufferStorage =
+    device.createBuffer({
+      label: "viz buffer",
+      size: numVizBufferTotalBytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
@@ -576,6 +588,10 @@ function setup_compute_particles() {
           tri:u32, dist_t:f32, px:u32, py:u32
         };
 
+        struct VizBuffer{
+          col: vec4f
+        };
+
         struct GlobalState {
            intra_ctn:u32,
            unused_1:u32,
@@ -630,7 +646,8 @@ function setup_compute_particles() {
         @group(1) @binding(0) var<storage, read_write> gState: GlobalState;
         @group(1) @binding(1) var<storage, read_write> rayIn: array<array<RayIn, WORKGROUP_SIZE>>;
         @group(1) @binding(2) var<storage, read_write> rayResult: array<array<RayResult, WORKGROUP_SIZE>>;
-        @group(1) @binding(3) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
+        @group(1) @binding(3) var<storage, read_write> vizBuffer: array<array<VizBuffer, WORKGROUP_SIZE>>;
+        @group(1) @binding(4) var frame_buffer: texture_storage_2d<${canvasformat}, write>;
 
         //https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
         fn ray_intersects_triangle( ray_origin:vec3f,
@@ -914,10 +931,38 @@ function setup_compute_particles() {
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
               emissive += color_tri.w;
-              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz * (emissive), 1));
+              var final_col = color_tri.xyz * (emissive);
+              var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+              curr_col = vec4f(curr_col.xyz*curr_col.w, curr_col.w);
+              curr_col += vec4f(final_col, 1.0);
+              curr_col = vec4f(curr_col.xyz/curr_col.w, curr_col.w);
+              vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col;
             }
         }
 
+                @compute @workgroup_size(WORKGROUP_SIZE)
+        fn vizRenderPipeline(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u) {
+            var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+
+            var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+            var color_tri = triangles[orig_tri].col;
+
+            var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+
+            var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+
+            let pix_pos = vec2u(pix_x, pix_y);
+
+            if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
+              textureStore(frame_buffer, pix_pos , vec4f(curr_col.xyz, 1));
+            }
+        }
+
+        
        fn box_intersects_triangle( box_min:vec3f,
             box_max:vec3f,
             tri: Triangle) -> bool
@@ -1155,6 +1200,11 @@ function setup_compute_particles() {
     {
       binding: 3,
       visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "storage" }
+    }, 
+    {
+      binding: 4,
+      visibility: GPUShaderStage.COMPUTE,
       storageTexture: { access: "write-only", format: canvasformat }
     }]
   });
@@ -1254,14 +1304,23 @@ function setup_compute_particles() {
     }
   });
   
+
+    vizRenderPipeline = device.createComputePipeline({
+    label: "vizRenderPipeline",
+    layout: computePipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "vizRenderPipeline"
+    }
+  });
   
-
-
-
 }
 
 function update_compute_particles(encoder, step) {
 
+  if(gCamAutoRotEnabled){
+    encoder.clearBuffer(vizBufferStorage);
+  }
   const computePass = encoder.beginComputePass();
   var secondaryComputeBinding = device.createBindGroup({
     label: "Secondary alt binding",
@@ -1279,7 +1338,11 @@ function update_compute_particles(encoder, step) {
       binding: 2,
       resource: { buffer: rayResultBufferStorage },
     }, 
-    { binding: 3, resource: context.getCurrentTexture().createView()},
+    {
+      binding: 3,
+      resource: { buffer: vizBufferStorage },
+    }, 
+    { binding: 4, resource: context.getCurrentTexture().createView()},
     ],
   });
 
@@ -1327,6 +1390,15 @@ function update_compute_particles(encoder, step) {
   if(gRenderMode != RENDER_MODE_PRIMARY)
   {
     computePass.setPipeline(bounceSamplePipeline);
+    computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
+  }
+
+  // Viz buff
+  if(gRenderMode != RENDER_MODE_PRIMARY)
+  {
+    computePass.setPipeline(vizRenderPipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
     computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
