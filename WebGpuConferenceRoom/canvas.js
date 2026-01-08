@@ -195,7 +195,7 @@ function UpdateUniforms() {
   const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
                                         tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
                                         tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0,
-                                        gNumSamples, 0, 0 ,0]);
+                                        gNumSamples, gRenderMode, 0 ,0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 
@@ -590,7 +590,14 @@ function setup_compute_particles() {
         const WORKGROUP_SIZE = ${WORKGROUP_SIZE};
         const RND_UNIT_SPHERE_SIZE = ${RND_UNIT_SPHERE_SIZE};
         const RENDER_MODE_PRIMARY = ${RENDER_MODE_PRIMARY};
-         const RENDER_MODE_PRIMARY = ${RENDER_MODE_PRIMARY};
+        const RENDER_MODE_BOUNCE = ${RENDER_MODE_BOUNCE};
+        const RENDER_MODE_BOUNCE2X = ${RENDER_MODE_BOUNCE2X};
+        const RENDER_MODE_AO = ${RENDER_MODE_AO};
+        const RENDER_MODE_REFLECT = ${RENDER_MODE_REFLECT};
+
+        fn getRenderMode() -> u32 {
+          return u32(uni.render_mode);
+        }
 
 
         @group(0) @binding(0) var<uniform> uni: Uniforms;
@@ -859,7 +866,10 @@ function setup_compute_particles() {
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){     
               //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
-              textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+              if(getRenderMode() == RENDER_MODE_PRIMARY)
+              {
+                textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+              }
             }
             rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx] = ray_result;
         }
