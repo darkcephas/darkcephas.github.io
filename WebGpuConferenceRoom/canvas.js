@@ -72,6 +72,7 @@ var bounceSample2xPipeline;
 var gSubpixelX = 0.0;
 var gSubpixelY = 0.0;
 var gSubpixelSel = 0;
+var gSelDistMax = 0.01;
 
 const RENDER_MODE_PRIMARY = 1;
 const RENDER_MODE_BOUNCE = 2;
@@ -88,13 +89,14 @@ function PollUI() {
   gRenderMode = document.querySelector("#radio_near_ao").checked ? RENDER_MODE_AO : gRenderMode;
   gRenderMode = document.querySelector("#radio_reflect").checked ? RENDER_MODE_REFLECT : gRenderMode;
   gNumSamples = Number(document.getElementById("sel_num_samples").value);
-  var testresulttext = document.querySelector("#sel_num_samples_text");
-  testresulttext.innerHTML = "Number of samples =" + String(gNumSamples);
+  var selNumSamplesText = document.querySelector("#sel_num_samples_text");
+  selNumSamplesText.innerHTML = "Number of samples =" + String(gNumSamples);
   var was_auto = gCamAutoRotEnabled;
   gCamAutoRotEnabled = document.getElementById('cam_auto_rotate').checked;
-
   resetVizThisFrame = was_auto && !gCamAutoRotEnabled;
-
+  gSelDistMax = Number(document.getElementById("sel_dist_max").value);
+  var selDistMaxText = document.querySelector("#sel_dist_max_text");
+  selDistMaxText.innerHTML = "Ray dist Max =" + String(gSelDistMax);
 }
 
 
@@ -224,7 +226,7 @@ function UpdateUniforms() {
   const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
     tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
     tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0,
-    gNumSamples, gRenderMode, gCamTheta, 0,
+    gNumSamples, gRenderMode, gCamTheta, gSelDistMax,
     gSubpixelX, gSubpixelY, 0, 0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
@@ -598,7 +600,7 @@ function setup_compute_particles() {
         canvas_size: vec2f, canvas_stride: f32, time_in:f32,
         tri_pos_min: vec4f,
         tri_pos_max: vec4f,
-        num_samples:f32, render_mode:f32, cam_theta_rot:f32, unused2:u32,
+        num_samples:f32, render_mode:f32, cam_theta_rot:f32, sel_dist_max:f32,
         subsample_y:f32, subsample_x:f32, 
       };
 
@@ -1060,9 +1062,9 @@ function setup_compute_particles() {
             var num_samples =  u32(uni.num_samples);
             var reflect_col = color_tri;
             for(var q=0u;q<num_samples ;q++){
-              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 10.0);
+              var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, uni.sel_dist_max);
               if(ray_result.tri != 0xFFFFFFFF){
-                reflect_col += triangles[ray_result.tri].col*0.1;
+                reflect_col += triangles[ray_result.tri].col*0.1  * (1.0 -ray_result.dist_t/ uni.sel_dist_max);
               }
             }
         
@@ -1091,7 +1093,7 @@ function setup_compute_particles() {
             var num_samples =  u32(uni.num_samples);
             var roll_mod = u32(uni.time_in * 121231.2131);
         
-            var max_ao_dist = 0.03;
+            var max_ao_dist = uni.sel_dist_max;
             for(var q=0u;q<num_samples ;q++){
               // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
               var rnd_linear =  ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
