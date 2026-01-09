@@ -1558,8 +1558,9 @@ function update_compute_particles(encoder, step) {
     gSubpixelSel = gSubpixelSel % 256;
   }
 
-  gSubpixelX = ((gSubpixelSel% 16)/16.0);
-  gSubpixelY = ((gSubpixelSel/ 16)/16.0);
+  const subpixel_rnd = (gSubpixelSel *83) %256;
+  gSubpixelX = ((subpixel_rnd% 16)/16.0);
+  gSubpixelY = ((subpixel_rnd/ 16)/16.0);
 
   const computePass = encoder.beginComputePass();
   var secondaryComputeBinding = device.createBindGroup({
