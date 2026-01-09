@@ -153,9 +153,9 @@ function ImportTriangleData() {
         }
         else {
           if (x >= 0.99 && y >= 0.99 && z >= 0.99 && smallest_y < 0.35) {
-            x = 0.8;
-            y = 0.6;
-            z = 0.4;
+            x = 0.7;
+            y = 0.7;
+            z = 0.8;
 
           }
         }
@@ -1002,14 +1002,14 @@ function setup_compute_particles() {
                     normal = -normal; 
                   }
 
-                  roll_mod = u32(uni.time_in * 72121.7131);
-                  var rnd_linear =  ((q *11237)% 13123) ^ (( pix_x * 4231) %73131) ^ ((pix_y*3131) %23231); 
-                  var mod_ray_vec2 = normalize(normal + rndUnit[(roll_mod + rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
+                  var roll_mod2 = u32(uni.time_in * 72121.7131);
+                  var rnd_linear2 =  ((q *11237)% 13123) ^ (( pix_x * 4231) %73131) ^ ((pix_y*3131) %6231); 
+                  var mod_ray_vec2 = normalize(normal + rndUnit[(roll_mod2 + rnd_linear2) % RND_UNIT_SPHERE_SIZE].xyz);
                   
                   var hit_ray_orig2 = hit_ray_orig +  hit_ray_dir *(ray_result.dist_t - 0.0001);
                   var ray_result2 = RayTraceSingle(hit_ray_orig2, mod_ray_vec2, 1000.0);
                   if(triangles[ray_result2.tri].col.w != 0.0){
-                    irradiance += triangles[orig_tri].col.xyz* triangles[ray_result.tri].col.xyz* triangles[ray_result2.tri].col.w;
+                    irradiance += color_tri.xyz* curr_tri.col.xyz* triangles[ray_result2.tri].col.w;
                   }
                 }
                 
