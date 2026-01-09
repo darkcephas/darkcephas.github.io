@@ -920,7 +920,11 @@ function setup_compute_particles() {
               //color_tri =  color_tri +vec3f(f32(max_cell_count)/128.0);   
               if(getRenderMode() == RENDER_MODE_PRIMARY)
               {
-                textureStore(frame_buffer, pix_pos , vec4f(color_tri.xyz, 1));
+                var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+                curr_col = vec4f(curr_col.xyz*curr_col.w, curr_col.w);
+                curr_col += vec4f(color_tri.xyz, 1.0);
+                curr_col = vec4f(curr_col.xyz/curr_col.w, curr_col.w);
+                vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col;
               }
             }
             rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx] = ray_result;
@@ -1071,7 +1075,11 @@ function setup_compute_particles() {
             let pix_pos = vec2u(pix_x, pix_y);
               // This can happen because rounding of workgroup size vs resolution
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
-              vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = reflect_col;
+              var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+              curr_col = vec4f(curr_col.xyz*curr_col.w, curr_col.w);
+              curr_col += vec4f(reflect_col.xyz, 1.0);
+              curr_col = vec4f(curr_col.xyz/curr_col.w, curr_col.w);
+              vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col;
             }
         }
 
@@ -1177,9 +1185,22 @@ function setup_compute_particles() {
                   var ray_orig = vert_array[line_sel];
                   var ray_vec = vert_array[(line_sel+1) % 3u] - ray_orig;
                     
-                  for(var max_min_sel = 0u; max_min_sel < 1u; max_min_sel++){
-                    var min_max_plane = select(box_min, box_max, vec3<bool>(max_min_sel == 1u));
+             
+                  {
+                    var min_max_plane = box_min;
+                    var t_each_plane = (min_max_plane - ray_orig)/ray_vec;
+                    
+                    for(var each_axis = 0u; each_axis < 3u; each_axis++){
+                        var test_p  = ray_orig + ray_vec * t_each_plane[each_axis];
+                        test_p[each_axis] = (box_min[each_axis] + box_max[each_axis]) * 0.5;
+                        if( all(box_min <= test_p) && all(test_p <= box_max)){
+                          return true;
+                        }
+                    }
+                  }
 
+                  {
+                    var min_max_plane = box_max;
                     var t_each_plane = (min_max_plane - ray_orig)/ray_vec;
                     
                     for(var each_axis = 0u; each_axis < 3u; each_axis++){
@@ -1633,7 +1654,7 @@ function update_compute_particles(encoder, step) {
   
 
   // Viz buff
-  if (gRenderMode != RENDER_MODE_PRIMARY) {
+  {
     computePass.setPipeline(vizRenderPipeline);
     computePass.setBindGroup(0, commonComputeBinding);
     computePass.setBindGroup(1, secondaryComputeBinding);
