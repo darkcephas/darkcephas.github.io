@@ -68,6 +68,7 @@ var vizRenderPipeline;
 var bounceAOPipeline;
 var bounceReflectPipeline;
 var resetVizThisFrame;
+var bounceSample2xPipeline;
 
 const RENDER_MODE_PRIMARY = 1;
 const RENDER_MODE_BOUNCE = 2;
@@ -963,6 +964,75 @@ function setup_compute_particles() {
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
+        fn mainSampledBounce2x(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u) {
+            var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var ray_vec =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_vec;
+
+            var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+            var color_tri = triangles[orig_tri].col;
+
+            var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+       
+            var irradiance = vec3(0.0); 
+            var num_samples =  u32(uni.num_samples);
+            var roll_mod = u32(uni.time_in * 121231.2131);
+            var light_mult = 2.5;
+            if(color_tri.w == 0.0){
+              for(var q=0u;q<num_samples ;q++){
+              // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
+                var rnd_linear =  ((q *11237)% 7123) ^ (( pix_x * 1231) %7131) ^ ((pix_y*71231) %3231); // 
+                var mod_ray_vec = normalize(ray_vec + rndUnit[(roll_mod+ rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
+             
+                var ray_result = RayTraceSingle(ray_orig, mod_ray_vec, 1000.0);
+                if(triangles[ray_result.tri].col.w != 0.0){
+                  irradiance += triangles[orig_tri].col.xyz;
+                }
+                else
+                {
+                  var hit_ray_dir =  mod_ray_vec;
+                  var hit_ray_orig =  ray_orig;
+                  var curr_tri = triangles[ray_result.tri];
+                  var normal = normalize(cross(curr_tri.pos1 - curr_tri.pos0, curr_tri.pos2 - curr_tri.pos0));
+                  if(dot(normal, hit_ray_dir) > 0.0){
+                    // normal should point the opposite of the cam dir.
+                    // Technically we should know this but we dont because bad mesh data
+                    normal = -normal; 
+                  }
+
+                  roll_mod = u32(uni.time_in * 72121.7131);
+                  var rnd_linear =  ((q *11237)% 13123) ^ (( pix_x * 4231) %73131) ^ ((pix_y*3131) %23231); 
+                  var mod_ray_vec2 = normalize(normal + rndUnit[(roll_mod + rnd_linear) % RND_UNIT_SPHERE_SIZE].xyz);
+                  
+                  var hit_ray_orig2 = hit_ray_orig +  hit_ray_dir *(ray_result.dist_t - 0.0001);
+                  var ray_result2 = RayTraceSingle(hit_ray_orig2, mod_ray_vec2, 1000.0);
+                  if(triangles[ray_result2.tri].col.w != 0.0){
+                    irradiance += triangles[orig_tri].col.xyz* triangles[ray_result.tri].col.xyz* triangles[ray_result2.tri].col.w;
+                  }
+                }
+                
+              }
+            }
+            irradiance *= 1.0/f32( num_samples);
+            irradiance*=2.5;
+
+          // ray_result.px = pix_x;
+            //ray_result.py = pix_y;
+            let pix_pos = vec2u(pix_x, pix_y);
+              // This can happen because rounding of workgroup size vs resolution
+            if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
+              irradiance += vec3f(color_tri.w);;
+              var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+              curr_col = vec4f(curr_col.xyz*curr_col.w, curr_col.w);
+              curr_col += vec4f(irradiance, 1.0);
+              curr_col = vec4f(curr_col.xyz/curr_col.w, curr_col.w);
+              vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col;
+            }
+        }
+
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn mainBounceReflect(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
         @builtin( num_workgroups) num_wg:vec3u) {
@@ -1435,6 +1505,17 @@ function setup_compute_particles() {
     }
   });
 
+      bounceSample2xPipeline = device.createComputePipeline({
+    label: "mainSampledBounce2x",
+    layout: computePipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "mainSampledBounce2x"
+    }
+  });
+
+
+  
   
 }
 
@@ -1526,6 +1607,14 @@ function update_compute_particles(encoder, step) {
     computePass.setBindGroup(1, secondaryComputeBinding);
     computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
   }
+  else if (gRenderMode == RENDER_MODE_BOUNCE2X) {
+    computePass.setPipeline(bounceSample2xPipeline);
+    computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
+  }
+
+  
 
   // Viz buff
   if (gRenderMode != RENDER_MODE_PRIMARY) {
