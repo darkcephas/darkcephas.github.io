@@ -69,6 +69,9 @@ var bounceAOPipeline;
 var bounceReflectPipeline;
 var resetVizThisFrame;
 var bounceSample2xPipeline;
+var gSubpixelX = 0.0;
+var gSubpixelY = 0.0;
+var gSubpixelSel = 0;
 
 const RENDER_MODE_PRIMARY = 1;
 const RENDER_MODE_BOUNCE = 2;
@@ -221,7 +224,8 @@ function UpdateUniforms() {
   const uniformArray = new Float32Array([canvas_width, canvas_height, canvas_width_block, time_t,
     tri_pos_min_x, tri_pos_min_y, tri_pos_min_z, 0.0,
     tri_pos_max_x, tri_pos_max_y, tri_pos_max_z, 0.0,
-    gNumSamples, gRenderMode, gCamTheta, 0]);
+    gNumSamples, gRenderMode, gCamTheta, 0,
+    gSubpixelX, gSubpixelY, 0, 0]);
   device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 }
 
@@ -594,7 +598,8 @@ function setup_compute_particles() {
         canvas_size: vec2f, canvas_stride: f32, time_in:f32,
         tri_pos_min: vec4f,
         tri_pos_max: vec4f,
-        num_samples:f32, render_mode:f32, cam_theta_rot:f32,
+        num_samples:f32, render_mode:f32, cam_theta_rot:f32, unused2:u32,
+        subsample_y:f32, subsample_x:f32, 
       };
 
 
@@ -756,7 +761,7 @@ function setup_compute_particles() {
             var pix_x = tile_x + wg_id.x * 16u;
             var pix_y = tile_y + wg_id.y * 16u;
 
-            var homo_xy = (vec2f(f32(pix_x)/uni.canvas_size.x,f32(pix_y)/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
+            var homo_xy = (vec2f( (f32(pix_x)+ uni.subsample_x )/uni.canvas_size.x,(f32(pix_y)+ uni.subsample_y )/uni.canvas_size.y)-vec2f(0.5,0.5)) * 2.0;
             // cam transform haxz
             homo_xy *= 0.65;// fov
             homo_xy.x *= uni.canvas_size.x/uni.canvas_size.y;
@@ -1523,7 +1528,16 @@ function update_compute_particles(encoder, step) {
 
   if (gCamAutoRotEnabled || resetVizThisFrame) {
     encoder.clearBuffer(vizBufferStorage);
+    gSubpixelSel = 0;
   }
+  else{
+    gSubpixelSel++;
+    gSubpixelSel = gSubpixelSel % 256;
+  }
+
+  gSubpixelX = ((gSubpixelSel% 16)/16.0);
+  gSubpixelY = ((gSubpixelSel/ 16)/16.0);
+
   const computePass = encoder.beginComputePass();
   var secondaryComputeBinding = device.createBindGroup({
     label: "Secondary alt binding",
