@@ -262,7 +262,7 @@ window.onload = async function () {
       device.createBuffer({
         label: "RayIn buffer",
         size: numRayInBufferTotalBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE,
       });
 
     const numRayResultElementBytes = 4 * 4; // RayResult
@@ -271,7 +271,7 @@ window.onload = async function () {
       device.createBuffer({
         label: "RayIn buffer",
         size: numRayResultBufferTotalBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE,
       });
 
     const numVizBufferElementBytes = 4 * 4; // RayResult
@@ -312,7 +312,7 @@ window.onload = async function () {
     device.createBuffer({
       label: "Triangle accel index buffer",
       size: accel_buff_size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE,
     });
 
   const micro_accel_buff_size = MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_DIV * MICRO_ACCEL_MAX_CELL_COUNT * kSizeBytesInU32;
@@ -320,7 +320,7 @@ window.onload = async function () {
     device.createBuffer({
       label: "Micro list triangle index accel",
       size: micro_accel_buff_size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE,
     });
 
 
@@ -332,7 +332,7 @@ window.onload = async function () {
     device.createBuffer({
       label: "Empty cell accel",
       size: empty_cell_accel_buff_size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE,
     });
 
 
