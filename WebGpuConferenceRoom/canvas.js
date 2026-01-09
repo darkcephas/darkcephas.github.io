@@ -69,6 +69,7 @@ var bounceAOPipeline;
 var bounceReflectPipeline;
 var resetVizThisFrame;
 var bounceSample2xPipeline;
+var blurRenderPipeline;
 var gSubpixelX = 0.0;
 var gSubpixelY = 0.0;
 var gSubpixelSel = 0;
@@ -1128,7 +1129,30 @@ function setup_compute_particles() {
             }
         }
 
-                @compute @workgroup_size(WORKGROUP_SIZE)
+        fn PixToWgLocalIdx(pix_xy:vec2u) -> vec4u {
+          return vec4u(0,0,0,0);
+        }
+
+        @compute @workgroup_size(WORKGROUP_SIZE)
+        fn mainBlurRender(  @builtin(local_invocation_index) local_idx:u32,
+        @builtin(	workgroup_id) wg_id:vec3u,
+        @builtin( num_workgroups) num_wg:vec3u) {
+            var ray_orig =  rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].ray_orig;
+            var orig_tri = rayResult[wg_id.x + num_wg.x * wg_id.y][local_idx].tri;
+
+            var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
+            var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
+
+            for(var i=-3i; i<=3i;i++){
+              for(var j=-3i; j<=3i;j++){
+              }
+            }
+           // PixToWgLocalIdx
+            var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+
+        }
+
+        @compute @workgroup_size(WORKGROUP_SIZE)
         fn vizRenderPipeline(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
         @builtin( num_workgroups) num_wg:vec3u) {
@@ -1543,8 +1567,14 @@ function setup_compute_particles() {
   });
 
 
-  
-  
+    blurRenderPipeline = device.createComputePipeline({
+    label: "mainBlurRender",
+    layout: computePipelineLayout,
+    compute: {
+      module: drawShaderModule,
+      entryPoint: "mainBlurRender"
+    }
+  });
 }
 
 function update_compute_particles(encoder, step) {
@@ -1653,6 +1683,13 @@ function update_compute_particles(encoder, step) {
   }
 
   
+  // Bilateral blur
+  {
+    computePass.setPipeline(blurRenderPipeline);
+    computePass.setBindGroup(0, commonComputeBinding);
+    computePass.setBindGroup(1, secondaryComputeBinding);
+    computePass.dispatchWorkgroups(canvas_width_block, canvas_height_block);
+  }
 
   // Viz buff
   {
