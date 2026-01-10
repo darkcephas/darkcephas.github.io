@@ -1129,8 +1129,8 @@ function setup_compute_particles() {
             }
         }
 
-        fn PixToWgLocalIdx(pix_xy:vec2u) -> vec4u {
-          return vec4u(0,0,0,0);
+        fn PixToWgLocalIdx(pix_xy:vec2u) -> vec3u {
+          return vec3u(pix_xy.x/16u,pix_xy.y/16u, (pix_xy.x%16u)| ((pix_xy.y%16u)*16));
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
@@ -1143,13 +1143,19 @@ function setup_compute_particles() {
             var pix_x = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].px;
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
 
-            for(var i=-3i; i<=3i;i++){
-              for(var j=-3i; j<=3i;j++){
+            var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
+            const blur_scale = 2i;
+            for(var i=-blur_scale; i<=blur_scale;i++){
+              for(var j=-blur_scale; j<=blur_scale;j++){
+                  var pix_xy = vec2i(i32(pix_x),i32(pix_y));
+                  pix_xy += vec2i(i,j);
+                  var to_addr = PixToWgLocalIdx(vec2u(pix_xy));
+                  curr_col += vizBuffer[to_addr.x + num_wg.x * to_addr.y][to_addr.z].col;
               }
             }
            // PixToWgLocalIdx
-            var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
-
+           const full_blur_width = blur_scale *2 + 1;
+           vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col/(f32(full_blur_width)* f32(full_blur_width));
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
@@ -1684,6 +1690,8 @@ function update_compute_particles(encoder, step) {
 
   
   // Bilateral blur
+  if(false) // this doesnt look very good because the noise is still way to high
+  for(var i = 0; i <1;i++)
   {
     computePass.setPipeline(blurRenderPipeline);
     computePass.setBindGroup(0, commonComputeBinding);
