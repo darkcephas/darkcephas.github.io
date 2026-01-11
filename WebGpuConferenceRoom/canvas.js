@@ -932,6 +932,32 @@ function setup_compute_particles() {
         }
 
 
+        // Attempt at generating more uniform bounce hemisphere
+        fn SunflowerRnd(norm:vec3f, num_idx:u32, sun_max:u32, spin:f32) -> vec3f{
+          const phi = (sqrt(5.0)+1.0)/2.0; // goldenratio    
+          let k = f32((num_idx%sun_max) + 1);
+          // first find the sunflower location in 2d plane
+          const pi = 3.14159;
+          let r =  sqrt(k-0.5)/sqrt(f32(sun_max)-0.5);
+          let theta = (2.0*pi*k)/(phi*phi);
+          var xy_loc = vec2f(r*cos(theta), r*sin(theta));// (-1,1 for xy)
+          xy_loc = mat2x2( vec2f(cos(spin), sin(spin)),  vec2f(-sin(spin), cos(spin))  )  * xy_loc;
+
+          let sun_vec = vec3f(xy_loc,  clamp( 1.0 - length(xy_loc) ,0.0,1.0) );
+
+          // Now vector rotation math
+          // We want to use y up as tangent but the floor and ceiling will also coincide
+          // so select a different basis if this is the case
+          var pre_tangent = select(vec3f(0,1,0), vec3f(1,0,0),  abs(norm.y) > 0.5);
+          // remove the norm part remaining
+          var real_tangent = normalize(pre_tangent - dot(pre_tangent, norm) * norm);
+          var co_tangent = cross(norm, real_tangent);
+          var rot_mat = mat3x3(real_tangent, co_tangent, norm);// column major
+
+          return rot_mat * sun_vec;// rotate into worldspace
+        }
+
+
         @compute @workgroup_size(WORKGROUP_SIZE)
         fn mainSampledBounce(  @builtin(local_invocation_index) local_idx:u32,
         @builtin(	workgroup_id) wg_id:vec3u,
@@ -1144,18 +1170,22 @@ function setup_compute_particles() {
             var pix_y = rayIn[wg_id.x + num_wg.x * wg_id.y][local_idx].py;
 
             var curr_col = vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col;
-            const blur_scale = 2i;
+            var total_contribution = 1.0;
+            const blur_scale = 5i;
             for(var i=-blur_scale; i<=blur_scale;i++){
               for(var j=-blur_scale; j<=blur_scale;j++){
                   var pix_xy = vec2i(i32(pix_x),i32(pix_y));
                   pix_xy += vec2i(i,j);
                   var to_addr = PixToWgLocalIdx(vec2u(pix_xy));
+                  if(rayResult[to_addr.x + num_wg.x * to_addr.y][to_addr.z].tri == orig_tri){
                   curr_col += vizBuffer[to_addr.x + num_wg.x * to_addr.y][to_addr.z].col;
+                    total_contribution+=1.0;
+                  } 
               }
             }
            // PixToWgLocalIdx
            const full_blur_width = blur_scale *2 + 1;
-           vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col/(f32(full_blur_width)* f32(full_blur_width));
+           vizBuffer[wg_id.x + num_wg.x * wg_id.y][local_idx].col = curr_col/total_contribution;
         }
 
         @compute @workgroup_size(WORKGROUP_SIZE)
