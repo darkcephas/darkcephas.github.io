@@ -1206,7 +1206,8 @@ function setup_compute_particles() {
             let pix_pos = vec2u(pix_x, pix_y);
 
             if(pix_pos.x < u32(uni.canvas_size.x) || pix_pos.y < u32(uni.canvas_size.y)){  
-              textureStore(frame_buffer, pix_pos , vec4f(curr_col.xyz, 1));
+              var gamma_correct = pow(curr_col.xyz, vec3f(1.0/2.2));
+              textureStore(frame_buffer, pix_pos , vec4f(gamma_correct, 1));
             }
         }
 
